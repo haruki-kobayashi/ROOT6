@@ -37,8 +37,8 @@ void position(TCanvas *c1, TTree *tree, Int_t *AreaParam);
 void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entries);
 void angle(TCanvas *c1, TTree *tree, Double_t angle_range, Double_t angle_resolution);
 void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range);
-void d_angle1(TCanvas *c1, TTree *tree);
-void d_angle2(TCanvas *c1, TTree *tree);
+void d_angle(TCanvas *c1, TTree *tree);
+void d_angle_SN(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY);
 void d_angle_rl1(TCanvas *c1, TTree *tree);
 void d_angle_rl2(TCanvas *c1, TTree *tree);
 void ph_vph(TCanvas *c1, TTree *tree, Int_t i, Double_t interval);
@@ -64,11 +64,18 @@ int main(int argc, char* argv[]) {
     // Get the BVXX file path from command line arguments
     std::string bvxxpath = argv[1];
     int pl = argv[2] ? std::stoi(argv[2]) : 0; // Default plate number is 0
-    std::string Palette = argv[3] ? argv[3] : "kBird"; // Default palette is kBird
 
     // 一通り完成したら引数で受け取れるように変更する
+    std::string Palette = argv[3] ? argv[3] : "kBird"; // Default palette is kBird  // argparseに変える
     Double_t angle_range = 6.0;
     Double_t angle_resolution = 0.1;
+    Double_t cut_slope = 0.015;
+    Double_t cut_intercept = 0.01;
+    Double_t dlat_range = 0.05;
+    Double_t drad_range = 1.0;
+
+    TString da_cutX = Form("(%f * (ax < 0 ? -ax : ax) + %f)", cut_slope, cut_intercept);
+    TString da_cutY = Form("(%f * (ay < 0 ? -ay : ay) + %f)", cut_slope, cut_intercept);
 
     // Measure time taken for the process
     TStopwatch t;
@@ -89,6 +96,22 @@ int main(int argc, char* argv[]) {
     std::cout << "\n Input file : " << bvxxpath << std::endl;
     std::cout << " # of BT    : " << entries << " tracks" << std::endl;
 
+	// Progress bar
+	int page = 0;
+	const int total = 35; // total pages
+
+    // Start plotting
+    TDatime starttime;
+    Int_t year = starttime.GetYear();
+    Int_t month = starttime.GetMonth();
+    Int_t day = starttime.GetDay();
+    Int_t hour = starttime.GetHour();
+    Int_t minute = starttime.GetMinute();
+    Int_t second = starttime.GetSecond();
+	TString StartTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+	std::cout << " Plot start : " << StartTime << std::endl;
+	ShowProgress(page, static_cast<Double_t>(page) / total);
+
     // Don't show ROOT information messages
     gErrorIgnoreLevel = kError;
 
@@ -104,15 +127,15 @@ int main(int argc, char* argv[]) {
     UInt_t ShotID1, ViewID1, ImagerID1, ShotID2, ViewID2, ImagerID2;
     Double_t x, y, ax, ay, ph1, ph2, ax1, ay1, ax2, ay2, z1, z2;
     const std::vector<std::pair<std::string, void*>> intBranches = {
-        {"ShotID1", &ShotID1}, {"ViewID1", &ViewID1}, {"ImagerID1", &ImagerID1},
+        {"ShotID1", &ShotID1}, {"ViewID1", &ViewID1}, {"ImagerID1", &ImagerID1}, 
         {"ShotID2", &ShotID2}, {"ViewID2", &ViewID2}, {"ImagerID2", &ImagerID2}
     };
     for (const auto& branch : intBranches) {
         tree->Branch(branch.first.c_str(), branch.second, (branch.first + "/I").c_str());
     }
     const std::vector<std::pair<std::string, void*>> doubleBranches = {
-        {"x", &x}, {"y", &y}, {"ax", &ax}, {"ay", &ay},
-        {"ph1", &ph1}, {"ph2", &ph2}, {"ax1", &ax1}, {"ay1", &ay1},
+        {"x", &x}, {"y", &y}, {"ax", &ax}, {"ay", &ay}, 
+        {"ph1", &ph1}, {"ph2", &ph2}, {"ax1", &ax1}, {"ay1", &ay1}, 
         {"ax2", &ax2}, {"ay2", &ay2}, {"z1", &z1}, {"z2", &z2}
     };
     for (const auto& branch : doubleBranches) {
@@ -155,34 +178,18 @@ int main(int argc, char* argv[]) {
         std::cerr << "\n Error: " << Palette << " is an unknown palette." << std::endl;
         return 1;
     }
-    Float_t r1, g1, b1, r2, g2, b2, r3, g3, b3;  // Define some colors
-    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.1))->GetRGB(r1, g1, b1);
+    Float_t r1, g1, b1, r2, g2, b2, r3, g3, b3; // Define some colors
+    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.15))->GetRGB(r1, g1, b1);
     gROOT->GetColor(90)->SetRGB(r1, g1, b1);
     gROOT->GetColor(gStyle->GetColorPalette(256 * 0.5))->GetRGB(r2, g2, b2);
     gROOT->GetColor(92)->SetRGB(r2, g2, b2);
-    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.9))->GetRGB(r3, g3, b3);
+    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.85))->GetRGB(r3, g3, b3);
     gROOT->GetColor(91)->SetRGB(r3, g3, b3);
 
     // Make canvas and PDF file
     gStyle->SetPaperSize(TStyle::kA4);
     TCanvas* c1 = new TCanvas("c1");
     c1->Print((bvxxpath + ".pdf[").c_str());
-
-	// Progress bar
-	int page = 0;
-	const int total = 35; // total pages
-
-    // Start plotting
-    TDatime starttime;
-    Int_t year = starttime.GetYear();
-    Int_t month = starttime.GetMonth();
-    Int_t day = starttime.GetDay();
-    Int_t hour = starttime.GetHour();
-    Int_t minute = starttime.GetMinute();
-    Int_t second = starttime.GetSecond();
-	TString StartTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
-	std::cout << " Plot start : " << StartTime << std::endl;
-	ShowProgress(page, static_cast<Double_t>(page) / total);
 
     Int_t MinX = tree->GetMinimum("x");
     Int_t MaxX = tree->GetMaximum("x");
@@ -225,7 +232,12 @@ int main(int argc, char* argv[]) {
     gDirectory->Delete("Angle*");
     ShowProgress(page, static_cast<Double_t>(page) / total);
 
-    d_angle1(c1, tree);
+    d_angle(c1, tree);
+    c1->Print((bvxxpath + ".pdf").c_str()); c1->Clear();
+    gDirectory->Delete("*a*");
+	ShowProgress(page, static_cast<Double_t>(page) / total);
+
+    d_angle_SN(c1, tree, da_cutX, da_cutY);
     c1->Print((bvxxpath + ".pdf").c_str()); c1->Clear();
     gDirectory->Delete("*a*");
 	ShowProgress(page, static_cast<Double_t>(page) / total);
@@ -251,8 +263,6 @@ int main(int argc, char* argv[]) {
 
     delete c1;
     delete tree;
-    // file->Close();
-    // remove(tempfile.Data());
 
     return 0;
 }
@@ -315,7 +325,7 @@ void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entr
     gStyle->SetStatY(0.97);
     gStyle->SetStatW(0.25);
     gStyle->SetStatH(0.17);
-    Position->SetFillColor(90);
+    Position->SetFillColor(91);
     Position->ProjectionY()->Draw("hbar");
     Position->ProjectionY()->SetTitle("");
     Position->ProjectionY()->SetStats(0);
@@ -325,7 +335,7 @@ void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entr
     gStyle->SetStatY(0.97);
     gStyle->SetStatW(0.25);
     gStyle->SetStatH(0.17);
-    Position->SetFillColor(91);
+    Position->SetFillColor(90);
     Position->ProjectionX()->Draw("bar");
     Position->ProjectionX()->SetTitle("");
     Position->ProjectionX()->SetStats(0);
@@ -351,7 +361,7 @@ void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entr
         }
     }
     track_density->GetXaxis()->SetRangeUser(0.0, max_density);
-    track_density->SetFillColorAlpha(92, 0.5);
+    track_density->SetFillColorAlpha(92, 0.7);
     track_density->Draw();
 
 	Int_t density_entries = track_density->GetEntries();
@@ -371,15 +381,15 @@ void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entr
 
 void angle(TCanvas *c1, TTree *tree, Double_t angle_range, Double_t angle_resolution)
 {
-    gStyle->SetTitleOffset(1.0,"y");
+    gStyle->SetTitleOffset(1.0, "y");
     gStyle->SetOptStat("e");
     gStyle->SetStatX(0.85);
     gStyle->SetStatY(0.97);
     gStyle->SetStatW(0.25);
     gStyle->SetStatH(0.17);
-    gStyle->SetTitleOffset(1.1,"x");
-    gStyle->SetTitleOffset(0.9,"y");
-    gStyle->SetTitleOffset(1.6,"z");
+    gStyle->SetTitleOffset(1.1, "x");
+    gStyle->SetTitleOffset(0.9, "y");
+    gStyle->SetTitleOffset(1.6, "z");
     c1->SetRightMargin(0.235);
     c1->SetLeftMargin(0.23);
 
@@ -394,7 +404,7 @@ void angle(TCanvas *c1, TTree *tree, Double_t angle_range, Double_t angle_resolu
 
 void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range)
 {
-    c1->Divide(2,2);
+    c1->Divide(2, 2);
     c1->GetPad(1)->SetRightMargin(0.235);
 	c1->GetPad(1)->SetLeftMargin(0.23);
     c1->GetPad(2)->SetRightMargin(0.3);
@@ -414,7 +424,7 @@ void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range)
     gStyle->SetStatY(0.97);
     gStyle->SetStatW(0.25);
     gStyle->SetStatH(0.17);
-    Angle->SetFillColor(90);
+    Angle->SetFillColor(91);
     Angle->ProjectionY()->Draw("hbar");
     Angle->ProjectionY()->SetTitle("");
     Angle->ProjectionY()->SetStats(0);
@@ -424,7 +434,7 @@ void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range)
     gStyle->SetStatY(0.97);
     gStyle->SetStatW(0.25);
     gStyle->SetStatH(0.17);
-    Angle->SetFillColor(91);
+    Angle->SetFillColor(90);
     Angle->ProjectionX()->Draw("bar");
     Angle->ProjectionX()->SetTitle("");
     Angle->ProjectionX()->SetStats(0);
@@ -442,69 +452,172 @@ void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range)
 	TH1D* Angle_1D = new TH1D(
         "Angle_1D", ang1Dtitle, angle_range * 10, 0.0, angle_range
     );
-    Angle_1D->SetFillColorAlpha(92, 0.5);
+    Angle_1D->SetFillColorAlpha(92, 0.7);
 	tree->Draw("sqrt(ay*ay+ax*ax)>>Angle_1D");
 }
 
-void d_angle1(TCanvas *c1, TTree *tree)
+void d_angle(TCanvas *c1, TTree *tree)
 {
-    gStyle->SetOptStat("em");
-    gStyle->SetStatFormat(".1e");
-    gStyle->SetStatY(0.9);
-    gStyle->SetStatX(0.9);
-    gStyle->SetStatW(0.35);
-    gStyle->SetStatH(0.2);
-    gStyle->SetTitleOffset(1.1,"x");
-    gStyle->SetTitleOffset(1.3,"y");
+    gStyle->SetOptStat("");
+    gStyle->SetTitleOffset(1.1, "x");
+    gStyle->SetTitleOffset(1.3, "y");
 
-    c1->Divide(2,2);
-    c1->GetPad(2)->Divide(2,1);
-    c1->GetPad(4)->Divide(2,1);
+    c1->Divide(2, 2);
+    c1->GetPad(1)->SetRightMargin(0.13);
+	c1->GetPad(1)->SetLeftMargin(0.13);
+    c1->GetPad(2)->SetRightMargin(0.13);
+	c1->GetPad(2)->SetLeftMargin(0.13);
+    c1->GetPad(3)->SetRightMargin(0.13);
+	c1->GetPad(3)->SetLeftMargin(0.13);
+    c1->GetPad(4)->SetRightMargin(0.13);
+	c1->GetPad(4)->SetLeftMargin(0.13);
 
-    TF1* f1 = new TF1("f1","gaus(0)+pol0(3)"); // fitting function
-    f1->SetLineWidth(2);
+    // Helper lambda to create 2D histograms
+    auto createHistogram = [&](const char* name, const char* title, const char* drawExpr) {
+        TH2D* sig_hist = new TH2D(name, title, 100, -2.0, 2.0, 100, -0.1, 0.1);
+        tree->Draw((std::string(drawExpr) + " >> " + name).c_str(), "", "goff");
+        return sig_hist;
+    };
 
+    // Plot 1: ax - ax1
     c1->cd(1);
-    TH2D* axdax = new TH2D("axdax","tan#theta_{x} #minus tan#theta_{x1} : tan#theta_{x};tan#theta_{x};tan#theta_{x} #minus tan#theta_{x1}",100,-1.0,1.0,100,-0.1,0.1);
-    tree->Draw("ax-ax1:ax >> axdax","(ax-ax2)*(ax-ax2)<0.02*0.02&&(ay-ay2)*(ay-ay2)<0.02*0.02&&(ay-ay1)*(ay-ay1)<0.02*0.02","colz");
+    TH2D* axdax1 = createHistogram(
+        "axdax1",
+        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x1}",
+        "ax-ax1:ax"
+    );
+    axdax1->Draw("colz");
 
-    c1->GetPad(2)->cd(1);
-    TH1D* dax_0 = new TH1D("dax_0","0.0 < |tan#theta_{x}| < 0.1;tan#theta_{x} #minus tan#theta_{x1}",50,-0.1,0.1);
-    dax_0->SetFillColorAlpha(90, 0.5);
-    tree->Draw("ax-ax1 >> dax_0","ax*ax<0.1*0.1&&(ax-ax2)*(ax-ax2)<0.02*0.02&&(ay-ay2)*(ay-ay2)<0.02*0.02&&(ay-ay1)*(ay-ay1)<0.02*0.02");
-    f1->SetParameter(0,dax_0->GetMaximum());
-    f1->SetParameter(1,dax_0->GetMean());
-    f1->SetParameter(2,dax_0->GetRMS());
-    dax_0->Fit(f1,"q","",-0.05,0.05);
+    // Plot 2: ay - ay1
+    c1->cd(2);
+    TH2D* ayday1 = createHistogram(
+        "ayday1",
+        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y1}",
+        "ay-ay1:ay"
+    );
+    ayday1->Draw("colz");
 
-    c1->GetPad(2)->cd(2);
-    TH1D* dax_1 = new TH1D("dax_1","0.5 < |tan#theta_{x}| < 0.6;tan#theta_{x} #minus tan#theta_{x1}",50,-0.1,0.1);
-    dax_1->SetFillColorAlpha(90, 0.5);
-    tree->Draw("ax-ax1 >> dax_1","ax*ax>0.5*0.5&&ax*ax<0.6*0.6&&(ax-ax2)*(ax-ax2)<0.02*0.02&&(ay-ay2)*(ay-ay2)<0.02*0.02&&(ay-ay1)*(ay-ay1)<0.02*0.02");
-    f1->SetParameter(0,dax_1->GetMaximum());
-    f1->SetParameter(1,dax_1->GetMean());
-    f1->SetParameter(2,dax_1->GetRMS());
-    dax_1->Fit(f1,"q","",-0.1,0.1);
-
+    // Plot 3: ax - ax2
     c1->cd(3);
-    TH2D* ayday = new TH2D("ayday","tan#theta_{y} #minus tan#theta_{y1} : tan#theta_{y};tan#theta_{y};tan#theta_{y} #minus tan#theta_{y1}",100,-1.0,1.0,100,-0.1,0.1);
-    tree->Draw("ay-ay1:ay >> ayday","(ax-ax2)*(ax-ax2)<0.02*0.02&&(ay-ay2)*(ay-ay2)<0.02*0.02&&(ax-ax1)*(ax-ax1)<0.02*0.02","colz");
+    TH2D* axdax2 = createHistogram(
+        "axdax2",
+        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x2}",
+        "ax-ax2:ax"
+    );
+    axdax2->Draw("colz");
 
-    c1->GetPad(4)->cd(1);
-    TH1D* day_0 = new TH1D("day_0","0.0 < |tan#theta_{y}| < 0.1;tan#theta_{y} #minus tan#theta_{y1}",50,-0.1,0.1);
-    day_0->SetFillColorAlpha(91, 0.5);
-    tree->Draw("ay-ay1 >> day_0","ay*ay<0.1*0.1&&(ax-ax2)*(ax-ax2)<0.02*0.02&&(ay-ay2)*(ay-ay2)<0.02*0.02&&(ax-ax1)*(ax-ax1)<0.02*0.02");
-    f1->SetParameter(0,day_0->GetMaximum());
-    f1->SetParameter(1,day_0->GetMean());
-    f1->SetParameter(2,day_0->GetRMS());
-    day_0->Fit(f1,"q","",-0.05,0.05);
+    // Plot 4: ay - ay2
+    c1->cd(4);
+    TH2D* ayday2 = createHistogram(
+        "ayday2",
+        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y2}",
+        "ay-ay2:ay"
+    );
+    ayday2->Draw("colz");
+}
 
-    c1->GetPad(4)->cd(2);
-    TH1D* day_1 = new TH1D("day_1","0.5 < |tan#theta_{y}| < 0.6;tan#theta_{y} #minus tan#theta_{y1}",50,-0.1,0.1);
-    day_1->SetFillColorAlpha(91, 0.5);
-    tree->Draw("ay-ay1 >> day_1","ay*ay>0.5*0.5&&ay*ay<0.6*0.6&&(ax-ax2)*(ax-ax2)<0.02*0.02&&(ay-ay2)*(ay-ay2)<0.02*0.02&&(ax-ax1)*(ax-ax1)<0.02*0.02");
-    f1->SetParameter(0,day_1->GetMaximum());
-    f1->SetParameter(1,day_1->GetMean());
-    f1->SetParameter(2,day_1->GetRMS());
-    day_1->Fit(f1,"q","",-0.1,0.1);
+void d_angle_SN(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY)
+{
+    gStyle->SetOptStat("");
+    gStyle->SetTitleOffset(1.1, "x");
+    gStyle->SetTitleOffset(1.3, "y");
+    gStyle->SetTitleOffset(1.15, "z");
+
+    c1->Divide(2, 2);
+    c1->GetPad(1)->SetRightMargin(0.13);
+	c1->GetPad(1)->SetLeftMargin(0.13);
+    c1->GetPad(2)->SetRightMargin(0.13);
+	c1->GetPad(2)->SetLeftMargin(0.13);
+    c1->GetPad(3)->SetRightMargin(0.13);
+	c1->GetPad(3)->SetLeftMargin(0.13);
+    c1->GetPad(4)->SetRightMargin(0.13);
+	c1->GetPad(4)->SetLeftMargin(0.13);
+
+    // Helper lambda to create and normalize 2D histograms
+    auto createAndNormalizeHistogram = [&](const char* name, const char* title, const char* drawExpr, const TCut& cut) {
+        TH2D* sig_hist = new TH2D(name, title, 100, -2.0, 2.0, 100, -0.1, 0.1);
+        TH2D* all_hist = new TH2D("all_hist", "", 100, -2.0, 2.0, 100, -0.1, 0.1);
+
+        tree->Draw((std::string(drawExpr) + " >> " + name).c_str(), cut, "goff");
+        tree->Draw((std::string(drawExpr) + " >> all_hist").c_str(), "", "goff");
+
+        for (Int_t xBin = 1; xBin <= 100; ++xBin) {
+            for (Int_t yBin = 1; yBin <= 100; ++yBin) {
+                Double_t entries = all_hist->GetBinContent(xBin, yBin);
+                Double_t sig_like = sig_hist->GetBinContent(xBin, yBin);
+                if (entries != sig_like) {
+                    sig_hist->SetBinContent(xBin, yBin, sig_like / (entries - sig_like));
+                } else {
+                    sig_hist->SetBinContent(xBin, yBin, 0.0); // Avoid division by zero
+                }
+            }
+        }
+
+        delete all_hist; // Clean up temporary histogram
+        return sig_hist;
+    };
+
+    // Plot 1: ax - ax1
+    c1->cd(1);
+    TCut cut_temp = Form(
+        "(ax-ax2)*(ax-ax2)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s",
+        da_cutX.Data(), da_cutX.Data(),
+        da_cutY.Data(), da_cutY.Data(),
+        da_cutY.Data(), da_cutY.Data()
+    );
+    TH2D* axdax1 = createAndNormalizeHistogram(
+        "axdax1",
+        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x1};S/N",
+        "ax-ax1:ax",
+        cut_temp
+    );
+    axdax1->Draw("colz");
+
+    // Plot 2: ay - ay1
+    c1->cd(2);
+    cut_temp = Form(
+        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&(ax-ax2)*(ax-ax2)<%s*%s",
+        da_cutX.Data(), da_cutX.Data(),
+        da_cutY.Data(), da_cutY.Data(),
+        da_cutX.Data(), da_cutX.Data()
+    );
+    TH2D* ayday1 = createAndNormalizeHistogram(
+        "ayday1",
+        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y1};S/N",
+        "ay-ay1:ay",
+        cut_temp
+    );
+    ayday1->Draw("colz");
+
+    // Plot 3: ax - ax2
+    c1->cd(3);
+    cut_temp = Form(
+        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s",
+        da_cutX.Data(), da_cutX.Data(),
+        da_cutY.Data(), da_cutY.Data(),
+        da_cutY.Data(), da_cutY.Data()
+    );
+    TH2D* axdax2 = createAndNormalizeHistogram(
+        "axdax2",
+        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x2};S/N",
+        "ax-ax2:ax",
+        cut_temp
+    );
+    axdax2->Draw("colz");
+
+    // Plot 4: ay - ay2
+    c1->cd(4);
+    cut_temp = Form(
+        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s&&(ax-ax2)*(ax-ax2)<%s*%s",
+        da_cutX.Data(), da_cutX.Data(),
+        da_cutY.Data(), da_cutY.Data(),
+        da_cutX.Data(), da_cutX.Data()
+    );
+    TH2D* ayday2 = createAndNormalizeHistogram(
+        "ayday2",
+        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y2};S/N",
+        "ay-ay2:ay",
+        cut_temp
+    );
+    ayday2->Draw("colz");
 }
