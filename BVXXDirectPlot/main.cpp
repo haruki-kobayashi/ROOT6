@@ -33,12 +33,12 @@
 #include "MyPalette.hpp"
 #include "ShowProgress.hpp"
 
-void position(TCanvas *c1, TTree *tree, Int_t *AreaParam);
-void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entries);
+void position(TCanvas *c1, TTree *tree, Int_t *AreaParam, Double_t *TDRange);
+void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entries, Double_t *TDRange);
 void angle(TCanvas *c1, TTree *tree, Double_t angle_range, Double_t angle_resolution);
 void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range);
 void d_angle(TCanvas *c1, TTree *tree);
-void d_angle_SN(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY);
+void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, Int_t da_cutPH);
 void d_angle_rl1(TCanvas *c1, TTree *tree);
 void d_angle_rl2(TCanvas *c1, TTree *tree);
 void ph_vph(TCanvas *c1, TTree *tree, Int_t i, Double_t interval);
@@ -57,70 +57,42 @@ void ph_vph_smallangle(TCanvas *c1, TTree *tree);
 int main(int argc, char* argv[]) {
     // Check if the correct number of arguments is provided
     if (argc < 3) {
-        std::cerr << "\n Usage: " << argv[0] << " input_bvxx_path pl\n" << std::endl;
+        std::cerr << "\n Usage: " << argv[0] << " bvxx_file pl\n" << std::endl;
         return 1;
     }
 
-    // Get the BVXX file path from command line arguments
-    std::string bvxxpath = argv[1];
+    // Parse command line arguments
+    std::string bvxxfile = argv[1];
     int pl = argv[2] ? std::stoi(argv[2]) : 0; // Default plate number is 0
 
-    // 一通り完成したら引数で受け取れるように変更する
-    std::string Palette = argv[3] ? argv[3] : "kBird"; // Default palette is kBird  // argparseに変える
+    // 一通り完成したらargparseで受け取れるように変更する
+    std::string Palette = argv[3] ? argv[3] : "kBird"; // Default palette is kBird
+    std::string outputfile = argv[4] ? argv[4] : bvxxfile;
+    std::string output = (outputfile.size() > 4 && outputfile.substr(outputfile.size() - 4) == ".pdf") 
+                         ? outputfile 
+                         : outputfile + ".pdf";
+    Double_t TDRange[2] = {0.0, 0.0};
     Double_t angle_range = 6.0;
     Double_t angle_resolution = 0.1;
-    Double_t cut_slope = 0.015;
-    Double_t cut_intercept = 0.01;
+    Double_t da_cut_slope = 0.08;
+    Double_t da_cut_intercept = 0.02;
+    Int_t da_cut_ph = 9;
     Double_t dlat_range = 0.05;
     Double_t drad_range = 1.0;
 
-    TString da_cutX = Form("(%f * (ax < 0 ? -ax : ax) + %f)", cut_slope, cut_intercept);
-    TString da_cutY = Form("(%f * (ay < 0 ? -ay : ay) + %f)", cut_slope, cut_intercept);
+    TString da_cutX = Form("(%f * (ax < 0 ? -ax : ax) + %f)", da_cut_slope, da_cut_intercept);
+    TString da_cutY = Form("(%f * (ay < 0 ? -ay : ay) + %f)", da_cut_slope, da_cut_intercept);
+    Int_t da_cutPH = da_cut_ph * 10000 - 5000;
 
     // Measure time taken for the process
     TStopwatch t;
 
-    // Read the BVXX file
-    std::cout << "\nReading BVXX file... " << std::endl;
-    vxx::BvxxReader br;
-    std::vector<vxx::base_track_t> btvec = br.ReadAll(bvxxpath, pl, 0);
-    if (btvec.empty()) {
-        std::cerr << "\n Error: Failed to read any data from the input file." << std::endl;
-        return 1;
-    }
-    Double_t elapsedtime_read = t.CpuTime();
-    std::cout << "Reading BVXX file completed. - Elapsed " << elapsedtime_read << " [s] (CPU)" << std::endl;
-
-    // Display information about the data
-    size_t entries = btvec.size();
-    std::cout << "\n Input file : " << bvxxpath << std::endl;
-    std::cout << " # of BT    : " << entries << " tracks" << std::endl;
-
-	// Progress bar
-	int page = 0;
-	const int total = 35; // total pages
-
-    // Start plotting
-    TDatime starttime;
-    Int_t year = starttime.GetYear();
-    Int_t month = starttime.GetMonth();
-    Int_t day = starttime.GetDay();
-    Int_t hour = starttime.GetHour();
-    Int_t minute = starttime.GetMinute();
-    Int_t second = starttime.GetSecond();
-	TString StartTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
-	std::cout << " Plot start : " << StartTime << std::endl;
-	ShowProgress(page, static_cast<Double_t>(page) / total);
-
     // Don't show ROOT information messages
     gErrorIgnoreLevel = kError;
 
-    // Make TTree from BVXX file
-    // TString tempfile = bvxxpath + "_" + Form("%d", static_cast<int>(time(nullptr))) + ".root";
-    // TFile* file = new TFile(tempfile, "recreate");
-    t.Start();
+    // Create TTree
+    std::cout << "\nReading BVXX file and filling the TTree... " << std::endl;
     TTree* tree = new TTree("tree", "");
-    tree->SetDirectory(0); // Do not attach to any directory
 
     // Create branches for the tree
     const UInt_t NumberOfImager = 72;
@@ -142,29 +114,66 @@ int main(int argc, char* argv[]) {
         tree->Branch(branch.first.c_str(), branch.second, (branch.first + "/D").c_str());
     }
 
-    // Fill the tree with data
-    for (const auto& bt : btvec) {
-        ShotID1 = vxx::hts_shot_id(bt.m[0].col, bt.m[0].row);
-        ShotID2 = vxx::hts_shot_id(bt.m[1].col, bt.m[1].row);
-        ViewID1 = ShotID1 / NumberOfImager;
-        ViewID2 = ShotID2 / NumberOfImager;
-        ImagerID1 = ShotID1 % NumberOfImager;
-        ImagerID2 = ShotID2 % NumberOfImager;
-        x = bt.x;
-        y = bt.y;
-        ax = bt.ax;
-        ay = bt.ay;
-        ph1 = bt.m[0].ph;
-        ph2 = bt.m[1].ph;
-        ax1 = bt.m[0].ax;
-        ay1 = bt.m[0].ay;
-        ax2 = bt.m[1].ax;
-        ay2 = bt.m[1].ay;
-        z1 = bt.m[0].z;
-        z2 = bt.m[1].z;
+    // Read the BVXX file and fill the tree
+    vxx::BvxxReader br;
+    if (br.Begin(bvxxfile, pl, 0))
+    {
+        vxx::HashEntry h;
+        vxx::base_track_t b;
 
-        tree->Fill();
+        while (br.NextHashEntry(h))
+        {
+            while (br.NextBaseTrack(b))
+            {
+                ShotID1 = vxx::hts_shot_id(b.m[0].col, b.m[0].row);
+                ShotID2 = vxx::hts_shot_id(b.m[1].col, b.m[1].row);
+                ViewID1 = ShotID1 / NumberOfImager;
+                ViewID2 = ShotID2 / NumberOfImager;
+                ImagerID1 = ShotID1 % NumberOfImager;
+                ImagerID2 = ShotID2 % NumberOfImager;
+                x = b.x;
+                y = b.y;
+                ax = b.ax;
+                ay = b.ay;
+                ph1 = b.m[0].ph;
+                ph2 = b.m[1].ph;
+                ax1 = b.m[0].ax;
+                ay1 = b.m[0].ay;
+                ax2 = b.m[1].ax;
+                ay2 = b.m[1].ay;
+                z1 = b.m[0].z;
+                z2 = b.m[1].z;
+
+                tree->Fill();
+            }
+        }
+        br.End();
     }
+
+    Double_t elapsedtime_read = t.CpuTime();
+    std::cout << "TTree created. - Elapsed " << elapsedtime_read << " [s] (CPU)" << std::endl;
+
+    // Display information
+    size_t entries = tree->GetEntriesFast();
+    std::cout << "\n Input file : " << bvxxfile << std::endl;
+    std::cout << " # of BT    : " << entries << " tracks" << std::endl;
+
+    // Start plotting
+    TDatime starttime;
+    Int_t year = starttime.GetYear();
+    Int_t month = starttime.GetMonth();
+    Int_t day = starttime.GetDay();
+    Int_t hour = starttime.GetHour();
+    Int_t minute = starttime.GetMinute();
+    Int_t second = starttime.GetSecond();
+	TString StartTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+    t.Start();
+	std::cout << " Plot start : " << StartTime << std::endl;
+
+	// Progress bar
+	int page = 0;
+	const int total = 35; // total pages
+	ShowProgress(page, static_cast<Double_t>(page) / total);
 
     // Set up style
     logon();
@@ -186,10 +195,10 @@ int main(int argc, char* argv[]) {
     gROOT->GetColor(gStyle->GetColorPalette(256 * 0.85))->GetRGB(r3, g3, b3);
     gROOT->GetColor(91)->SetRGB(r3, g3, b3);
 
-    // Make canvas and PDF file
+    // Create canvas and PDF file
     gStyle->SetPaperSize(TStyle::kA4);
     TCanvas* c1 = new TCanvas("c1");
-    c1->Print((bvxxpath + ".pdf[").c_str());
+    c1->Print((output + "[").c_str());
 
     Int_t MinX = tree->GetMinimum("x");
     Int_t MaxX = tree->GetMaximum("x");
@@ -214,36 +223,36 @@ int main(int argc, char* argv[]) {
     }
     Int_t AreaParam[11] = {bin, LowX, UpX, LowY, UpY, MinX, MaxX, MinY, MaxY, RangeX, RangeY};
 
-    position(c1, tree, AreaParam);
-    c1->Print((bvxxpath + ".pdf").c_str()); c1->Clear();
+    position(c1, tree, AreaParam, TDRange);
+    c1->Print(output.c_str()); c1->Clear();
 	ShowProgress(page, static_cast<Double_t>(page) / total);
 
-    position_projection(c1, tree, AreaParam, entries);
-    c1->Print((bvxxpath + ".pdf").c_str()); c1->Clear();
+    position_projection(c1, tree, AreaParam, entries, TDRange);
+    c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("Position*");
 	ShowProgress(page, static_cast<Double_t>(page) / total);
 
     angle(c1, tree, angle_range, angle_resolution);
-    c1->Print((bvxxpath + ".pdf").c_str()); c1->Clear();
+    c1->Print(output.c_str()); c1->Clear();
     ShowProgress(page, static_cast<Double_t>(page) / total);
 
     angle_projection(c1, tree, angle_range);
-    c1->Print((bvxxpath + ".pdf").c_str()); c1->Clear();
+    c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("Angle*");
     ShowProgress(page, static_cast<Double_t>(page) / total);
 
     d_angle(c1, tree);
-    c1->Print((bvxxpath + ".pdf").c_str()); c1->Clear();
+    c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("*a*");
 	ShowProgress(page, static_cast<Double_t>(page) / total);
 
-    d_angle_SN(c1, tree, da_cutX, da_cutY);
-    c1->Print((bvxxpath + ".pdf").c_str()); c1->Clear();
+    d_angle_Ncut(c1, tree, da_cutX, da_cutY, da_cutPH);
+    c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("*a*");
 	ShowProgress(page, static_cast<Double_t>(page) / total);
 
     // Close PDF file
-    c1->Print((bvxxpath + ".pdf]").c_str());
+    c1->Print((output + "]").c_str());
 	if (page < total) page = total;
     ShowProgress(page, 1.0);
 
@@ -258,16 +267,15 @@ int main(int argc, char* argv[]) {
 	TString EndTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
     Double_t elapsedtime = t.CpuTime();
 	std::cout << "\n Plot end   : " << EndTime << " - Elapsed " << elapsedtime << " [s] (CPU)" << std::endl;
-    std::cout << " Output     : " << bvxxpath << ".pdf" << std::endl;
+    std::cout << " Output     : " << output << std::endl;
 
-
-    delete c1;
-    delete tree;
+    // delete c1;
+    // delete tree;
 
     return 0;
 }
 
-void position(TCanvas *c1, TTree *tree, Int_t *AreaParam) {
+void position(TCanvas *c1, TTree *tree, Int_t *AreaParam, Double_t *TDRange) {
     Int_t bin  = AreaParam[0];
     Int_t LowX = AreaParam[1];
     Int_t UpX  = AreaParam[2];
@@ -288,10 +296,11 @@ void position(TCanvas *c1, TTree *tree, Int_t *AreaParam) {
     TH2D* Position = new TH2D(
         "Position", "Position;x [mm];y [mm];/mm^{2}", bin, LowX*0.001, UpX*0.001, bin, LowY*0.001, UpY*0.001
     );
+    if (TDRange[1] > 0.0) Position->GetZaxis()->SetRangeUser(TDRange[0], TDRange[1]);
     tree->Draw("y*0.001:x*0.001 >> Position", "", "colz");
 }
 
-void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entries)
+void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entries, Double_t *TDRange)
 {
     Int_t bin    = AreaParam[0];
     Int_t LowX   = AreaParam[1];
@@ -360,7 +369,11 @@ void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entr
             if (max_density < density) max_density = density;
         }
     }
-    track_density->GetXaxis()->SetRangeUser(0.0, max_density);
+    if (TDRange[1] == 0.0) {
+        TDRange[0] = 0.0;
+        TDRange[1] = max_density;
+    }
+    track_density->GetXaxis()->SetRangeUser(TDRange[0], TDRange[1]);
     track_density->SetFillColorAlpha(92, 0.7);
     track_density->Draw();
 
@@ -474,16 +487,16 @@ void d_angle(TCanvas *c1, TTree *tree)
 
     // Helper lambda to create 2D histograms
     auto createHistogram = [&](const char* name, const char* title, const char* drawExpr) {
-        TH2D* sig_hist = new TH2D(name, title, 100, -2.0, 2.0, 100, -0.1, 0.1);
+        TH2D* hist = new TH2D(name, title, 100, -2.0, 2.0, 100, -0.1, 0.1);
         tree->Draw((std::string(drawExpr) + " >> " + name).c_str(), "", "goff");
-        return sig_hist;
+        return hist;
     };
 
     // Plot 1: ax - ax1
     c1->cd(1);
     TH2D* axdax1 = createHistogram(
-        "axdax1",
-        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x1}",
+        "axdax1", 
+        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x1}", 
         "ax-ax1:ax"
     );
     axdax1->Draw("colz");
@@ -491,8 +504,8 @@ void d_angle(TCanvas *c1, TTree *tree)
     // Plot 2: ay - ay1
     c1->cd(2);
     TH2D* ayday1 = createHistogram(
-        "ayday1",
-        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y1}",
+        "ayday1", 
+        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y1}", 
         "ay-ay1:ay"
     );
     ayday1->Draw("colz");
@@ -500,8 +513,8 @@ void d_angle(TCanvas *c1, TTree *tree)
     // Plot 3: ax - ax2
     c1->cd(3);
     TH2D* axdax2 = createHistogram(
-        "axdax2",
-        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x2}",
+        "axdax2", 
+        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x2}", 
         "ax-ax2:ax"
     );
     axdax2->Draw("colz");
@@ -509,14 +522,14 @@ void d_angle(TCanvas *c1, TTree *tree)
     // Plot 4: ay - ay2
     c1->cd(4);
     TH2D* ayday2 = createHistogram(
-        "ayday2",
-        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y2}",
+        "ayday2", 
+        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y2}", 
         "ay-ay2:ay"
     );
     ayday2->Draw("colz");
 }
 
-void d_angle_SN(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY)
+void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, Int_t da_cutPH)
 {
     gStyle->SetOptStat("");
     gStyle->SetTitleOffset(1.1, "x");
@@ -533,42 +546,25 @@ void d_angle_SN(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY)
     c1->GetPad(4)->SetRightMargin(0.13);
 	c1->GetPad(4)->SetLeftMargin(0.13);
 
-    // Helper lambda to create and normalize 2D histograms
-    auto createAndNormalizeHistogram = [&](const char* name, const char* title, const char* drawExpr, const TCut& cut) {
-        TH2D* sig_hist = new TH2D(name, title, 100, -2.0, 2.0, 100, -0.1, 0.1);
-        TH2D* all_hist = new TH2D("all_hist", "", 100, -2.0, 2.0, 100, -0.1, 0.1);
-
+    // Helper lambda to create 2D histograms and apply noise cuts
+    auto createHistogramAndNoiseCut = [&](const char* name, const char* title, const char* drawExpr, const TCut& cut) {
+        TH2D* hist = new TH2D(name, title, 100, -2.0, 2.0, 100, -0.1, 0.1);
         tree->Draw((std::string(drawExpr) + " >> " + name).c_str(), cut, "goff");
-        tree->Draw((std::string(drawExpr) + " >> all_hist").c_str(), "", "goff");
-
-        for (Int_t xBin = 1; xBin <= 100; ++xBin) {
-            for (Int_t yBin = 1; yBin <= 100; ++yBin) {
-                Double_t entries = all_hist->GetBinContent(xBin, yBin);
-                Double_t sig_like = sig_hist->GetBinContent(xBin, yBin);
-                if (entries != sig_like) {
-                    sig_hist->SetBinContent(xBin, yBin, sig_like / (entries - sig_like));
-                } else {
-                    sig_hist->SetBinContent(xBin, yBin, 0.0); // Avoid division by zero
-                }
-            }
-        }
-
-        delete all_hist; // Clean up temporary histogram
-        return sig_hist;
+        return hist;
     };
 
     // Plot 1: ax - ax1
     c1->cd(1);
     TCut cut_temp = Form(
-        "(ax-ax2)*(ax-ax2)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s",
-        da_cutX.Data(), da_cutX.Data(),
-        da_cutY.Data(), da_cutY.Data(),
-        da_cutY.Data(), da_cutY.Data()
+        "(ax-ax2)*(ax-ax2)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&ph1>%d&&ph2>%d", 
+        da_cutX.Data(), da_cutX.Data(), 
+        da_cutY.Data(), da_cutY.Data(), 
+        da_cutPH, da_cutPH
     );
-    TH2D* axdax1 = createAndNormalizeHistogram(
-        "axdax1",
-        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x1};S/N",
-        "ax-ax1:ax",
+    TH2D* axdax1 = createHistogramAndNoiseCut(
+        "axdax1", 
+        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x1} : tan#it{#theta}_{x} (Noise cut);tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x1}", 
+        "ax-ax1:ax", 
         cut_temp
     );
     axdax1->Draw("colz");
@@ -576,15 +572,15 @@ void d_angle_SN(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY)
     // Plot 2: ay - ay1
     c1->cd(2);
     cut_temp = Form(
-        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&(ax-ax2)*(ax-ax2)<%s*%s",
-        da_cutX.Data(), da_cutX.Data(),
-        da_cutY.Data(), da_cutY.Data(),
-        da_cutX.Data(), da_cutX.Data()
+        "(ax-ax2)*(ax-ax2)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&ph1>%d&&ph2>%d", 
+        da_cutX.Data(), da_cutX.Data(), 
+        da_cutY.Data(), da_cutY.Data(), 
+        da_cutPH, da_cutPH
     );
-    TH2D* ayday1 = createAndNormalizeHistogram(
-        "ayday1",
-        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y1};S/N",
-        "ay-ay1:ay",
+    TH2D* ayday1 = createHistogramAndNoiseCut(
+        "ayday1", 
+        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y1} : tan#it{#theta}_{y} (Noise cut);tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y1}", 
+        "ay-ay1:ay", 
         cut_temp
     );
     ayday1->Draw("colz");
@@ -592,15 +588,15 @@ void d_angle_SN(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY)
     // Plot 3: ax - ax2
     c1->cd(3);
     cut_temp = Form(
-        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s",
-        da_cutX.Data(), da_cutX.Data(),
-        da_cutY.Data(), da_cutY.Data(),
-        da_cutY.Data(), da_cutY.Data()
+        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s&&ph1>%d&&ph2>%d", 
+        da_cutX.Data(), da_cutX.Data(), 
+        da_cutY.Data(), da_cutY.Data(), 
+        da_cutPH, da_cutPH
     );
-    TH2D* axdax2 = createAndNormalizeHistogram(
-        "axdax2",
-        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x2};S/N",
-        "ax-ax2:ax",
+    TH2D* axdax2 = createHistogramAndNoiseCut(
+        "axdax2", 
+        "tan#it{#theta}_{x} #minus tan#it{#theta}_{x2} : tan#it{#theta}_{x} (Noise cut);tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x2}", 
+        "ax-ax2:ax", 
         cut_temp
     );
     axdax2->Draw("colz");
@@ -608,16 +604,85 @@ void d_angle_SN(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY)
     // Plot 4: ay - ay2
     c1->cd(4);
     cut_temp = Form(
-        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s&&(ax-ax2)*(ax-ax2)<%s*%s",
-        da_cutX.Data(), da_cutX.Data(),
-        da_cutY.Data(), da_cutY.Data(),
-        da_cutX.Data(), da_cutX.Data()
+        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s&&ph1>%d&&ph2>%d", 
+        da_cutX.Data(), da_cutX.Data(), 
+        da_cutY.Data(), da_cutY.Data(), 
+        da_cutPH, da_cutPH
     );
-    TH2D* ayday2 = createAndNormalizeHistogram(
-        "ayday2",
-        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y2};S/N",
-        "ay-ay2:ay",
+    TH2D* ayday2 = createHistogramAndNoiseCut(
+        "ayday2", 
+        "tan#it{#theta}_{y} #minus tan#it{#theta}_{y2} : tan#it{#theta}_{y} (Noise cut);tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y2}", 
+        "ay-ay2:ay", 
         cut_temp
     );
     ayday2->Draw("colz");
+}
+
+void ph_vph(TCanvas *c1, TTree *tree, Int_t i, Double_t interval)
+{
+    gStyle->SetOptStat("em");
+    gStyle->SetStatFormat("6.1f");
+    gStyle->SetStatY(0.9);
+    gStyle->SetStatX(0.4);
+    gStyle->SetStatW(0.3);
+    gStyle->SetStatH(0.25);
+    gStyle->SetTitleOffset(1.1, "x");
+
+    // set angular range
+    Char_t cut_tmp[50];
+    Char_t titlename[30]; 
+    Double_t tan_low = i * interval;
+    Double_t tan_up = i * interval + 0.1;
+    sprintf(cut_tmp, "ax*ax+ay*ay>=%.1f*%.1f&&ax*ax+ay*ay<%.1f*%.1f", tan_low, tan_low, tan_up, tan_up);
+    TCut range = cut_tmp;
+
+    c1->Divide(3, 2);
+
+    c1->cd(1);
+    TH1D * phsum = new TH1D("phsum", range, 32, 0.5, 32.5);
+    sprintf(titlename, "PHsum (%.1f - %.1f)", tan_low, tan_up);
+    phsum->SetTitle(titlename);
+    phsum->GetXaxis()->SetTitle("PHsum");
+    tree->Draw("(ph1+ph2)*0.0001 >> phsum", range);
+
+    c1->cd(2);
+    TH1D * ph1 = new TH1D("ph1", range, 16, 0.5, 16.5);
+    sprintf(titlename, "PH1 (%.1f - %.1f)", tan_low, tan_up);
+    ph1->SetTitle(titlename);
+    ph1->GetXaxis()->SetTitle("PH1");
+    tree->Draw("ph1*0.0001 >> ph1", range);
+
+    c1->cd(3);
+    TH1D * ph2 = new TH1D("ph2", range, 16, 0.5, 16.5);
+    sprintf(titlename, "PH2 (%.1f - %.1f)", tan_low, tan_up);
+    ph2->SetTitle(titlename);
+    ph2->GetXaxis()->SetTitle("PH2");
+    tree->Draw("ph2*0.0001 >> ph2", range);
+
+    gStyle->SetOptStat("em");
+    gStyle->SetStatY(0.9);
+    gStyle->SetStatX(0.9);
+    gStyle->SetStatW(0.3);
+    gStyle->SetStatH(0.25);
+
+    c1->cd(4);
+    TH1D * vphsum = new TH1D("vphsum", range, 200, 0, 200);
+    sprintf(titlename, "VPHsum (%.1f - %.1f)", tan_low, tan_up);
+    vphsum->SetTitle(titlename);
+    vphsum->GetXaxis()->SetTitle("VPHsum");
+    tree->Draw("(ph1+ph2)%10000 >> vphsum", range);
+
+    c1->cd(5);
+    TH1D * vph1 = new TH1D("vph1", range, 100, 0, 100);
+    sprintf(titlename, "VPH1 (%.1f - %.1f)", tan_low, tan_up);
+    vph1->SetTitle(titlename);
+    vph1->GetXaxis()->SetTitle("VPH1");
+    tree->Draw("ph1%10000 >> vph1", range);
+
+    c1->cd(6);
+    TH1D * vph2 = new TH1D("vph2", range, 100, 0, 100);
+    sprintf(titlename, "VPH2 (%.1f - %.1f)", tan_low, tan_up);
+    vph2->SetTitle(titlename);
+    vph2->GetXaxis()->SetTitle("VPH2");
+    tree->Draw("ph2%10000 >> vph2", range);
 }

@@ -75,6 +75,9 @@
         "xtr1common": "cpp",
         "xtree": "cpp",
         "xutility": "cpp",
-        "rootlogon.C": "cpp"
+        "rootlogon.C": "cpp",
+        "deque": "cpp",
+        "queue": "cpp",
+        "shared_mutex": "cpp"
     }
 }
