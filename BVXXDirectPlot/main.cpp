@@ -23,7 +23,6 @@
 #include <TGraphErrors.h>
 #include <TStopwatch.h>
 #include <TString.h>
-// #include <TMath.h>
 #include <TLatex.h>
 #include <TCut.h>
 #include <TLegend.h>

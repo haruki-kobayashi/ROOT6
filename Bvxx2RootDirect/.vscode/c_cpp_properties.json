@@ -1,0 +1,25 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "M:\\data\\NINJA\\ROOT\\root_v6.32.10.win64.vc17\\include",
+                "E:\\udd\\hkobayashi\\cpp\\include",
+                "E:\\udd\\hkobayashi\\cpp\\Download\\magic_enum-master\\include\\magic_enum"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE",
+                "_CRT_SECURE_NO_WARNINGS"
+            ],
+            "windowsSdkVersion": "10.0.26100.0",
+            "compilerPath": "cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-msvc-x64"
+        }
+    ],
+    "version": 4
+}
