@@ -23,7 +23,7 @@
 #include <TGraphErrors.h>
 #include <TStopwatch.h>
 #include <TString.h>
-#include <TMath.h>
+// #include <TMath.h>
 #include <TLatex.h>
 #include <TCut.h>
 #include <TLegend.h>
@@ -33,21 +33,20 @@
 #include "MyPalette.hpp"
 #include "ShowProgress.hpp"
 
-void position(TCanvas *c1, TTree *tree, Int_t *AreaParam, Double_t *TDRange);
-void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entries, Double_t *TDRange);
-void angle(TCanvas *c1, TTree *tree, Double_t angle_range, Double_t angle_resolution);
-void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range);
+void position(TCanvas *c1, TTree *tree, int *AreaParam, double *TDRange);
+void position_projection(TCanvas *c1, TTree *tree, int *AreaParam, size_t entries, double *TDRange);
+void angle(TCanvas *c1, TTree *tree, double angle_max, double angle_resolution);
+void angle_projection(TCanvas *c1, TTree *tree, double angle_max);
 void d_angle(TCanvas *c1, TTree *tree);
-void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, Int_t da_cutPH);
-void d_angle_rl1(TCanvas *c1, TTree *tree);
-void d_angle_rl2(TCanvas *c1, TTree *tree);
-void ph_vph(TCanvas *c1, TTree *tree, Int_t i, Double_t interval);
-void ranking1(TCanvas *c1, TTree *tree, Int_t vph_standard);
-void ranking2(TCanvas *c1, TTree *tree, Int_t vph_standard);
-void ranking3(TCanvas *c1, TTree *tree, Int_t vph_standard);
-void ranking4(TCanvas *c1, TTree *tree, Int_t vph_standard);
-void ranking5(TCanvas *c1, TTree *tree, Int_t vph_standard);
-void ranking6(TCanvas *c1, TTree *tree, Int_t vph_standard);
+void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, uint8_t da_cutPH);
+void d_angle_rl(TCanvas *c1, TTree *tree, double angle_max, double dlat_range, double drad_range, int face);
+void ph_vph(TCanvas *c1, TTree *tree, int vph_range, int i, double interval);
+void ranking1(TCanvas *c1, TTree *tree, int vph_standard);
+void ranking2(TCanvas *c1, TTree *tree, int vph_standard);
+void ranking3(TCanvas *c1, TTree *tree, int vph_standard);
+void ranking4(TCanvas *c1, TTree *tree, int vph_standard);
+void ranking5(TCanvas *c1, TTree *tree, int vph_standard);
+void ranking6(TCanvas *c1, TTree *tree, int vph_standard);
 void distribution_map(TCanvas *c1, TTree *tree);
 void distribution_map_re(TCanvas *c1, TTree *tree);
 void distribution_xy(TCanvas *c1, TTree *tree);
@@ -71,18 +70,18 @@ int main(int argc, char* argv[]) {
     std::string output = (outputfile.size() > 4 && outputfile.substr(outputfile.size() - 4) == ".pdf") 
                          ? outputfile 
                          : outputfile + ".pdf";
-    Double_t TDRange[2] = {0.0, 0.0};
-    Double_t angle_range = 6.0;
-    Double_t angle_resolution = 0.1;
-    Double_t da_cut_slope = 0.08;
-    Double_t da_cut_intercept = 0.02;
-    Int_t da_cut_ph = 9;
-    Double_t dlat_range = 0.05;
-    Double_t drad_range = 1.0;
+    double TDRange[2] = {0.0, 0.0};
+    double angle_max = 6.0;
+    double angle_resolution = 0.1;
+    double da_cut_slope = 0.08;
+    double da_cut_intercept = 0.02;
+    uint8_t da_cutPH = 9;
+    double dlat_range = 0.05;
+    double drad_range = 1.0;
+    int vph_range = 100;
 
     TString da_cutX = Form("(%f * (ax < 0 ? -ax : ax) + %f)", da_cut_slope, da_cut_intercept);
     TString da_cutY = Form("(%f * (ay < 0 ? -ay : ay) + %f)", da_cut_slope, da_cut_intercept);
-    Int_t da_cutPH = da_cut_ph * 10000 - 5000;
 
     // Measure time taken for the process
     TStopwatch t;
@@ -93,28 +92,45 @@ int main(int argc, char* argv[]) {
     // Create TTree
     std::cout << "\nReading BVXX file and filling the TTree... " << std::endl;
     TTree* tree = new TTree("tree", "");
+    TTree* subtree = new TTree("subtree", "");
 
-    // Create branches for the tree
-    const UInt_t NumberOfImager = 72;
-    UInt_t ShotID1, ViewID1, ImagerID1, ShotID2, ViewID2, ImagerID2;
-    Double_t x, y, ax, ay, ph1, ph2, ax1, ay1, ax2, ay2, z1, z2;
-    const std::vector<std::pair<std::string, void*>> intBranches = {
-        {"ShotID1", &ShotID1}, {"ViewID1", &ViewID1}, {"ImagerID1", &ImagerID1}, 
-        {"ShotID2", &ShotID2}, {"ViewID2", &ViewID2}, {"ImagerID2", &ImagerID2}
+    // Create branches for the TTree
+    const uint8_t NumberOfImager = 72;
+    uint8_t ph1, ph2;
+    uint32_t ShotID1, ViewID1, ImagerID1, ShotID2, ViewID2, ImagerID2, vph1, vph2;
+    double x, y, ax, ay, ax1, ay1, ax2, ay2, dax1, day1, dax2, day2, dx, dy, dz, tan;
+    // tree
+    const std::vector<std::pair<std::string, void*>> uint8Branches = {
+        {"ph1", &ph1}, {"ph2", &ph2}
     };
-    for (const auto& branch : intBranches) {
+    for (const auto& branch : uint8Branches) {
+        tree->Branch(branch.first.c_str(), branch.second, (branch.first + "/b").c_str());
+    }
+    const std::vector<std::pair<std::string, void*>> uint32Branches = {
+        {"ShotID1", &ShotID1}, {"ViewID1", &ViewID1}, {"ImagerID1", &ImagerID1}, 
+        {"ShotID2", &ShotID2}, {"ViewID2", &ViewID2}, {"ImagerID2", &ImagerID2}, 
+        {"vph1", &vph1}, {"vph2", &vph2}
+    };
+    for (const auto& branch : uint32Branches) {
         tree->Branch(branch.first.c_str(), branch.second, (branch.first + "/I").c_str());
     }
     const std::vector<std::pair<std::string, void*>> doubleBranches = {
         {"x", &x}, {"y", &y}, {"ax", &ax}, {"ay", &ay}, 
-        {"ph1", &ph1}, {"ph2", &ph2}, {"ax1", &ax1}, {"ay1", &ay1}, 
-        {"ax2", &ax2}, {"ay2", &ay2}, {"z1", &z1}, {"z2", &z2}
+        {"ax1", &ax1}, {"ay1", &ay1}, {"ax2", &ax2}, {"ay2", &ay2}, 
+        {"dax1", &dax1}, {"day1", &day1}, {"dax2", &dax2}, {"day2", &day2}, {"tan", &tan}
     };
     for (const auto& branch : doubleBranches) {
         tree->Branch(branch.first.c_str(), branch.second, (branch.first + "/D").c_str());
     }
+    // subtree
+    const std::vector<std::pair<std::string, void*>> doubleBranchesSub = {
+        {"x", &x}, {"y", &y}, {"dx", &dx}, {"dy", &dy}, {"dz", &dz}
+    };
+    for (const auto& branch : doubleBranchesSub) {
+        subtree->Branch(branch.first.c_str(), branch.second, (branch.first + "/D").c_str());
+    }
 
-    // Read the BVXX file and fill the tree
+    // Read the BVXX file and fill the TTree
     vxx::BvxxReader br;
     if (br.Begin(bvxxfile, pl, 0))
     {
@@ -135,22 +151,32 @@ int main(int argc, char* argv[]) {
                 y = b.y;
                 ax = b.ax;
                 ay = b.ay;
-                ph1 = b.m[0].ph;
-                ph2 = b.m[1].ph;
+                ph1 = static_cast<uint8_t>(b.m[0].ph * 0.0001);
+                ph2 = static_cast<uint8_t>(b.m[1].ph * 0.0001);
+                vph1 = static_cast<uint32_t>(b.m[0].ph % 10000);
+                vph2 = static_cast<uint32_t>(b.m[1].ph % 10000);
                 ax1 = b.m[0].ax;
                 ay1 = b.m[0].ay;
                 ax2 = b.m[1].ax;
                 ay2 = b.m[1].ay;
-                z1 = b.m[0].z;
-                z2 = b.m[1].z;
+
+                dax1 = ax - ax1;
+                day1 = ay - ay1;
+                dax2 = ax - ax2;
+                day2 = ay - ay2;
+                dz = b.m[1].z - b.m[0].z;
+                dx = ax * dz - (ax2 * dz * 0.5) - (ax1 * dz * 0.5); // At the center of base layer
+                dy = ay * dz - (ay2 * dz * 0.5) - (ay1 * dz * 0.5); // At the center of base layer
+                tan = sqrt(ax * ax + ay * ay);
 
                 tree->Fill();
+                subtree->Fill();
             }
         }
         br.End();
     }
 
-    Double_t elapsedtime_read = t.CpuTime();
+    double elapsedtime_read = t.CpuTime();
     std::cout << "TTree created. - Elapsed " << elapsedtime_read << " [s] (CPU)" << std::endl;
 
     // Display information
@@ -160,20 +186,20 @@ int main(int argc, char* argv[]) {
 
     // Start plotting
     TDatime starttime;
-    Int_t year = starttime.GetYear();
-    Int_t month = starttime.GetMonth();
-    Int_t day = starttime.GetDay();
-    Int_t hour = starttime.GetHour();
-    Int_t minute = starttime.GetMinute();
-    Int_t second = starttime.GetSecond();
+    int year = starttime.GetYear();
+    int month = starttime.GetMonth();
+    int day = starttime.GetDay();
+    int hour = starttime.GetHour();
+    int minute = starttime.GetMinute();
+    int second = starttime.GetSecond();
 	TString StartTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
     t.Start();
 	std::cout << " Plot start : " << StartTime << std::endl;
 
 	// Progress bar
 	int page = 0;
-	const int total = 35; // total pages
-	ShowProgress(page, static_cast<Double_t>(page) / total);
+	int total = 50; // total pages
+	ShowProgress(page, static_cast<double>(page) / total);
 
     // Set up style
     logon();
@@ -200,13 +226,13 @@ int main(int argc, char* argv[]) {
     TCanvas* c1 = new TCanvas("c1");
     c1->Print((output + "[").c_str());
 
-    Int_t MinX = tree->GetMinimum("x");
-    Int_t MaxX = tree->GetMaximum("x");
-    Int_t MinY = tree->GetMinimum("y");
-    Int_t MaxY = tree->GetMaximum("y");
-    Int_t RangeX = MaxX - MinX;
-    Int_t RangeY = MaxY - MinY;
-    Int_t LowX, UpX, LowY, UpY, bin;
+    int MinX = tree->GetMinimum("x");
+    int MaxX = tree->GetMaximum("x");
+    int MinY = tree->GetMinimum("y");
+    int MaxY = tree->GetMaximum("y");
+    int RangeX = MaxX - MinX;
+    int RangeY = MaxY - MinY;
+    int LowX, UpX, LowY, UpY, bin;
     if (RangeX >= RangeY)
     {
         LowX = MinX - 10000;
@@ -221,35 +247,62 @@ int main(int argc, char* argv[]) {
         UpY = MaxY + 10000;
         bin = (RangeY + 20000) * 0.001;
     }
-    Int_t AreaParam[11] = {bin, LowX, UpX, LowY, UpY, MinX, MaxX, MinY, MaxY, RangeX, RangeY};
+    int AreaParam[11] = {bin, LowX, UpX, LowY, UpY, MinX, MaxX, MinY, MaxY, RangeX, RangeY};
 
     position(c1, tree, AreaParam, TDRange);
     c1->Print(output.c_str()); c1->Clear();
-	ShowProgress(page, static_cast<Double_t>(page) / total);
+	ShowProgress(page, static_cast<double>(page) / total);
 
     position_projection(c1, tree, AreaParam, entries, TDRange);
     c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("Position*");
-	ShowProgress(page, static_cast<Double_t>(page) / total);
+	ShowProgress(page, static_cast<double>(page) / total);
 
-    angle(c1, tree, angle_range, angle_resolution);
+    angle(c1, tree, angle_max, angle_resolution);
     c1->Print(output.c_str()); c1->Clear();
-    ShowProgress(page, static_cast<Double_t>(page) / total);
+    ShowProgress(page, static_cast<double>(page) / total);
 
-    angle_projection(c1, tree, angle_range);
+    angle_projection(c1, tree, angle_max);
     c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("Angle*");
-    ShowProgress(page, static_cast<Double_t>(page) / total);
+    ShowProgress(page, static_cast<double>(page) / total);
 
     d_angle(c1, tree);
     c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("*a*");
-	ShowProgress(page, static_cast<Double_t>(page) / total);
+	ShowProgress(page, static_cast<double>(page) / total);
 
     d_angle_Ncut(c1, tree, da_cutX, da_cutY, da_cutPH);
     c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("*a*");
-	ShowProgress(page, static_cast<Double_t>(page) / total);
+	ShowProgress(page, static_cast<double>(page) / total);
+
+    d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 1);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("*a*");
+    ShowProgress(page, static_cast<double>(page) / total);
+
+    d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 2);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("*a*");
+    ShowProgress(page, static_cast<double>(page) / total);
+
+    for (int i = 0; i < 10; ++i) // 0.0-0.1 ~ 0.9-1.0
+    {
+        ph_vph(c1, tree, vph_range, i, 0.1);
+        c1->Print(output.c_str()); c1->Clear();
+        gDirectory->Delete("*ph*");
+        ShowProgress(page, static_cast<double>(page) / total);
+    }
+
+    int phvph_loop = static_cast<int>((angle_max - 0.1) * 2) + 2;
+    for (int i = 2; i < phvph_loop; ++i) // 1.0-1.1 ~
+    {
+        ph_vph(c1, tree, vph_range, i, 0.5);
+        c1->Print(output.c_str()); c1->Clear();
+        gDirectory->Delete("*ph*");
+        ShowProgress(page, static_cast<double>(page) / total);
+    }
 
     // Close PDF file
     c1->Print((output + "]").c_str());
@@ -265,7 +318,7 @@ int main(int argc, char* argv[]) {
     minute = endtime.GetMinute();
     second = endtime.GetSecond();
 	TString EndTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
-    Double_t elapsedtime = t.CpuTime();
+    double elapsedtime = t.CpuTime();
 	std::cout << "\n Plot end   : " << EndTime << " - Elapsed " << elapsedtime << " [s] (CPU)" << std::endl;
     std::cout << " Output     : " << output << std::endl;
 
@@ -275,12 +328,12 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-void position(TCanvas *c1, TTree *tree, Int_t *AreaParam, Double_t *TDRange) {
-    Int_t bin  = AreaParam[0];
-    Int_t LowX = AreaParam[1];
-    Int_t UpX  = AreaParam[2];
-    Int_t LowY = AreaParam[3];
-    Int_t UpY  = AreaParam[4];
+void position(TCanvas *c1, TTree *tree, int *AreaParam, double *TDRange) {
+    int bin  = AreaParam[0];
+    int LowX = AreaParam[1];
+    int UpX  = AreaParam[2];
+    int LowY = AreaParam[3];
+    int UpY  = AreaParam[4];
 
     gStyle->SetOptStat("e");
     gStyle->SetStatX(0.85);
@@ -300,19 +353,19 @@ void position(TCanvas *c1, TTree *tree, Int_t *AreaParam, Double_t *TDRange) {
     tree->Draw("y*0.001:x*0.001 >> Position", "", "colz");
 }
 
-void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entries, Double_t *TDRange)
+void position_projection(TCanvas *c1, TTree *tree, int *AreaParam, size_t entries, double *TDRange)
 {
-    Int_t bin    = AreaParam[0];
-    Int_t LowX   = AreaParam[1];
-    Int_t UpX    = AreaParam[2];
-    Int_t LowY   = AreaParam[3];
-    Int_t UpY    = AreaParam[4];
-    Int_t MinX   = AreaParam[5];
-    Int_t MaxX   = AreaParam[6];
-    Int_t MinY   = AreaParam[7];
-    Int_t MaxY   = AreaParam[8];
-    Int_t RangeX = AreaParam[9];
-    Int_t RangeY = AreaParam[10];
+    int bin    = AreaParam[0];
+    int LowX   = AreaParam[1];
+    int UpX    = AreaParam[2];
+    int LowY   = AreaParam[3];
+    int UpY    = AreaParam[4];
+    int MinX   = AreaParam[5];
+    int MaxX   = AreaParam[6];
+    int MinY   = AreaParam[7];
+    int MaxY   = AreaParam[8];
+    int RangeX = AreaParam[9];
+    int RangeY = AreaParam[10];
 
     c1->Divide(2, 2);
     c1->GetPad(1)->SetRightMargin(0.235);
@@ -359,12 +412,12 @@ void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entr
     TH1D* track_density = new TH1D(
         "track_density", ";Track Density [/mm^{2}];Frequency", 10000, 0, 100000
     );
-    Int_t Xbins = ((TH2D*)Position)->GetNbinsX();
-    Int_t Ybins = ((TH2D*)Position)->GetNbinsY();
-    Double_t max_density = 0.0;
+    int Xbins = ((TH2D*)Position)->GetNbinsX();
+    int Ybins = ((TH2D*)Position)->GetNbinsY();
+    double max_density = 0.0;
     for (int xBin = 0; xBin < Xbins; ++xBin) {
         for (int yBin = 0; yBin < Ybins; ++yBin) {
-            Double_t density = ((TH2D*)Position)->GetBinContent(xBin + 1, yBin + 1);
+            double density = ((TH2D*)Position)->GetBinContent(xBin + 1, yBin + 1);
             if (density > 0.0) track_density->Fill(density);
             if (max_density < density) max_density = density;
         }
@@ -377,9 +430,9 @@ void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entr
     track_density->SetFillColorAlpha(92, 0.7);
     track_density->Draw();
 
-	Int_t density_entries = track_density->GetEntries();
-    Double_t density_mean = track_density->GetMean();
-    Double_t density_stddev = track_density->GetStdDev();
+	int density_entries = track_density->GetEntries();
+    double density_mean = track_density->GetMean();
+    double density_stddev = track_density->GetStdDev();
     TLegend* density_lg = new TLegend(0.67, 0.7, 0.9, 0.9);
     density_lg->SetName("density_lg");
     density_lg->SetFillStyle(0);
@@ -392,7 +445,7 @@ void position_projection(TCanvas *c1, TTree *tree, Int_t *AreaParam, size_t entr
     density_lg->Draw();
 }
 
-void angle(TCanvas *c1, TTree *tree, Double_t angle_range, Double_t angle_resolution)
+void angle(TCanvas *c1, TTree *tree, double angle_max, double angle_resolution)
 {
     gStyle->SetTitleOffset(1.0, "y");
     gStyle->SetOptStat("e");
@@ -406,16 +459,16 @@ void angle(TCanvas *c1, TTree *tree, Double_t angle_range, Double_t angle_resolu
     c1->SetRightMargin(0.235);
     c1->SetLeftMargin(0.23);
 
-    UInt_t angle_bin = 2 / angle_resolution * angle_range;
+    uint32_t angle_bin = 2 / angle_resolution * angle_max;
 
     TString angtitle = Form("Angle;tan#it{#theta}_{x};tan#it{#theta}_{y};/(%g rad)^{2}", angle_resolution);
     TH2D* Angle = new TH2D(
-        "Angle", angtitle, angle_bin, -angle_range, angle_range, angle_bin, -angle_range, angle_range
+        "Angle", angtitle, angle_bin, -angle_max, angle_max, angle_bin, -angle_max, angle_max
     );
     tree->Draw("ay:ax >> Angle", "", "colz");
 }
 
-void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range)
+void angle_projection(TCanvas *c1, TTree *tree, double angle_max)
 {
     c1->Divide(2, 2);
     c1->GetPad(1)->SetRightMargin(0.235);
@@ -463,10 +516,10 @@ void angle_projection(TCanvas *c1, TTree *tree, Double_t angle_range)
 	gStyle->SetTitleOffset(1.5, "y");
     TString ang1Dtitle = ";#sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}};Frequency";
 	TH1D* Angle_1D = new TH1D(
-        "Angle_1D", ang1Dtitle, angle_range * 10, 0.0, angle_range
+        "Angle_1D", ang1Dtitle, angle_max * 10, 0.0, angle_max
     );
     Angle_1D->SetFillColorAlpha(92, 0.7);
-	tree->Draw("sqrt(ay*ay+ax*ax)>>Angle_1D");
+	tree->Draw("tan>>Angle_1D");
 }
 
 void d_angle(TCanvas *c1, TTree *tree)
@@ -497,7 +550,7 @@ void d_angle(TCanvas *c1, TTree *tree)
     TH2D* axdax1 = createHistogram(
         "axdax1", 
         "tan#it{#theta}_{x} #minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x1}", 
-        "ax-ax1:ax"
+        "dax1:ax"
     );
     axdax1->Draw("colz");
 
@@ -506,7 +559,7 @@ void d_angle(TCanvas *c1, TTree *tree)
     TH2D* ayday1 = createHistogram(
         "ayday1", 
         "tan#it{#theta}_{y} #minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y1}", 
-        "ay-ay1:ay"
+        "day1:ay"
     );
     ayday1->Draw("colz");
 
@@ -515,7 +568,7 @@ void d_angle(TCanvas *c1, TTree *tree)
     TH2D* axdax2 = createHistogram(
         "axdax2", 
         "tan#it{#theta}_{x} #minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x2}", 
-        "ax-ax2:ax"
+        "dax2:ax"
     );
     axdax2->Draw("colz");
 
@@ -524,12 +577,12 @@ void d_angle(TCanvas *c1, TTree *tree)
     TH2D* ayday2 = createHistogram(
         "ayday2", 
         "tan#it{#theta}_{y} #minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y2}", 
-        "ay-ay2:ay"
+        "day2:ay"
     );
     ayday2->Draw("colz");
 }
 
-void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, Int_t da_cutPH)
+void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, uint8_t da_cutPH)
 {
     gStyle->SetOptStat("");
     gStyle->SetTitleOffset(1.1, "x");
@@ -547,7 +600,7 @@ void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, In
 	c1->GetPad(4)->SetLeftMargin(0.13);
 
     // Helper lambda to create 2D histograms and apply noise cuts
-    auto createHistogramAndNoiseCut = [&](const char* name, const char* title, const char* drawExpr, const TCut& cut) {
+    auto createNoiseCutHistogram = [&](const char* name, const char* title, const char* drawExpr, const TCut& cut) {
         TH2D* hist = new TH2D(name, title, 100, -2.0, 2.0, 100, -0.1, 0.1);
         tree->Draw((std::string(drawExpr) + " >> " + name).c_str(), cut, "goff");
         return hist;
@@ -556,15 +609,15 @@ void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, In
     // Plot 1: ax - ax1
     c1->cd(1);
     TCut cut_temp = Form(
-        "(ax-ax2)*(ax-ax2)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&ph1>%d&&ph2>%d", 
+        "dax2*dax2<%s*%s&&day2*day2<%s*%s&&ph1>%d&&ph2>%d", 
         da_cutX.Data(), da_cutX.Data(), 
         da_cutY.Data(), da_cutY.Data(), 
         da_cutPH, da_cutPH
     );
-    TH2D* axdax1 = createHistogramAndNoiseCut(
+    TH2D* axdax1 = createNoiseCutHistogram(
         "axdax1", 
         "tan#it{#theta}_{x} #minus tan#it{#theta}_{x1} : tan#it{#theta}_{x} (Noise cut);tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x1}", 
-        "ax-ax1:ax", 
+        "dax1:ax", 
         cut_temp
     );
     axdax1->Draw("colz");
@@ -572,15 +625,15 @@ void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, In
     // Plot 2: ay - ay1
     c1->cd(2);
     cut_temp = Form(
-        "(ax-ax2)*(ax-ax2)<%s*%s&&(ay-ay2)*(ay-ay2)<%s*%s&&ph1>%d&&ph2>%d", 
+        "dax2*dax2<%s*%s&&day2*day2<%s*%s&&ph1>%d&&ph2>%d", 
         da_cutX.Data(), da_cutX.Data(), 
         da_cutY.Data(), da_cutY.Data(), 
         da_cutPH, da_cutPH
     );
-    TH2D* ayday1 = createHistogramAndNoiseCut(
+    TH2D* ayday1 = createNoiseCutHistogram(
         "ayday1", 
         "tan#it{#theta}_{y} #minus tan#it{#theta}_{y1} : tan#it{#theta}_{y} (Noise cut);tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y1}", 
-        "ay-ay1:ay", 
+        "day1:ay", 
         cut_temp
     );
     ayday1->Draw("colz");
@@ -588,15 +641,15 @@ void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, In
     // Plot 3: ax - ax2
     c1->cd(3);
     cut_temp = Form(
-        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s&&ph1>%d&&ph2>%d", 
+        "dax1*dax1<%s*%s&&day1*day1<%s*%s&&ph1>%d&&ph2>%d", 
         da_cutX.Data(), da_cutX.Data(), 
         da_cutY.Data(), da_cutY.Data(), 
         da_cutPH, da_cutPH
     );
-    TH2D* axdax2 = createHistogramAndNoiseCut(
+    TH2D* axdax2 = createNoiseCutHistogram(
         "axdax2", 
         "tan#it{#theta}_{x} #minus tan#it{#theta}_{x2} : tan#it{#theta}_{x} (Noise cut);tan#it{#theta}_{x};tan#it{#theta}_{x} #minus tan#it{#theta}_{x2}", 
-        "ax-ax2:ax", 
+        "dax2:ax", 
         cut_temp
     );
     axdax2->Draw("colz");
@@ -604,21 +657,46 @@ void d_angle_Ncut(TCanvas *c1, TTree *tree, TString da_cutX, TString da_cutY, In
     // Plot 4: ay - ay2
     c1->cd(4);
     cut_temp = Form(
-        "(ax-ax1)*(ax-ax1)<%s*%s&&(ay-ay1)*(ay-ay1)<%s*%s&&ph1>%d&&ph2>%d", 
+        "dax1*dax1<%s*%s&&day1*day1<%s*%s&&ph1>%d&&ph2>%d", 
         da_cutX.Data(), da_cutX.Data(), 
         da_cutY.Data(), da_cutY.Data(), 
         da_cutPH, da_cutPH
     );
-    TH2D* ayday2 = createHistogramAndNoiseCut(
+    TH2D* ayday2 = createNoiseCutHistogram(
         "ayday2", 
         "tan#it{#theta}_{y} #minus tan#it{#theta}_{y2} : tan#it{#theta}_{y} (Noise cut);tan#it{#theta}_{y};tan#it{#theta}_{y} #minus tan#it{#theta}_{y2}", 
-        "ay-ay2:ay", 
+        "day2:ay", 
         cut_temp
     );
     ayday2->Draw("colz");
 }
 
-void ph_vph(TCanvas *c1, TTree *tree, Int_t i, Double_t interval)
+void d_angle_rl(TCanvas *c1, TTree *tree, double angle_max, double dlat_range, double drad_range, int face)
+{
+    gStyle->SetOptStat("");
+    gStyle->SetStatY(0.97);
+    gStyle->SetStatX(0.95);
+    gStyle->SetStatW(0.2);
+    gStyle->SetStatH(0.25);
+    gStyle->SetTitleOffset(1.1, "x");
+    gStyle->SetTitleOffset(1.0, "y");
+
+    c1->Divide(1, 2);
+
+    TString suffix = (face == 1) ? "1" : "2";
+
+    c1->cd(1);
+    TString lattitle = Form("#Deltalateral %s;tan#it{#theta};#frac{tan#it{#theta}_{x%s} #times tan#it{#theta}_{y} #plus tan#it{#theta}_{y%s} #times tan#it{#theta}_{x}}{#sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}}}", suffix.Data(), suffix.Data(), suffix.Data());
+    TH2D* lat = new TH2D("lat", lattitle, 200, 0.0, angle_max, 200, -dlat_range, dlat_range);
+    tree->Draw(Form("(ax%s*ay-ay%s*ax)/tan:tan>>lat", suffix.Data(), suffix.Data()), "", "colz");
+
+    c1->cd(2);
+    TString radtitle = Form("#Deltaradial %s;tan#it{#theta};#frac{tan#it{#theta}_{x%s} #times tan#it{#theta}_{x} #plus tan#it{#theta}_{y%s} #times tan#it{#theta}_{y}}{#sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}}} #minus #sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}}", suffix.Data(), suffix.Data(), suffix.Data());
+    TH2D* rad = new TH2D("rad", radtitle, 200, 0.0, angle_max, 200, -drad_range, drad_range);
+    tree->Draw(Form("(ax%s*ax+ay%s*ay)/tan-tan:tan>>rad", suffix.Data(), suffix.Data()), "", "colz");
+}
+
+void ph_vph(TCanvas *c1, TTree *tree, int vph_range, int i, double interval)
 {
     gStyle->SetOptStat("em");
     gStyle->SetStatFormat("6.1f");
@@ -628,36 +706,26 @@ void ph_vph(TCanvas *c1, TTree *tree, Int_t i, Double_t interval)
     gStyle->SetStatH(0.25);
     gStyle->SetTitleOffset(1.1, "x");
 
-    // set angular range
-    Char_t cut_tmp[50];
-    Char_t titlename[30]; 
-    Double_t tan_low = i * interval;
-    Double_t tan_up = i * interval + 0.1;
-    sprintf(cut_tmp, "ax*ax+ay*ay>=%.1f*%.1f&&ax*ax+ay*ay<%.1f*%.1f", tan_low, tan_low, tan_up, tan_up);
-    TCut range = cut_tmp;
+    // Set angular range
+    double tan_low = i * interval;
+    double tan_up = i * interval + 0.1;
+    TString range = Form("tan>=%.1f&&tan<%.1f", tan_low, tan_up);
 
     c1->Divide(3, 2);
 
-    c1->cd(1);
-    TH1D * phsum = new TH1D("phsum", range, 32, 0.5, 32.5);
-    sprintf(titlename, "PHsum (%.1f - %.1f)", tan_low, tan_up);
-    phsum->SetTitle(titlename);
-    phsum->GetXaxis()->SetTitle("PHsum");
-    tree->Draw("(ph1+ph2)*0.0001 >> phsum", range);
+    // Helper lambda to create and draw histograms
+    auto createAndDrawHistogram = [&](int pad, const char* name, const char* title, const char* drawExpr, int bins, double xMin, double xMax) {
+        c1->cd(pad);
+        TString histTitle = Form("%s (%.1f #leq tan#it{#theta} < %.1f);%s;", title, tan_low, tan_up, title);
+        TH1D* hist = new TH1D(name, histTitle, bins, xMin, xMax);
+        hist->SetFillColorAlpha(92, 0.7);
+        tree->Draw(Form("%s >> %s", drawExpr, name), range);
+    };
 
-    c1->cd(2);
-    TH1D * ph1 = new TH1D("ph1", range, 16, 0.5, 16.5);
-    sprintf(titlename, "PH1 (%.1f - %.1f)", tan_low, tan_up);
-    ph1->SetTitle(titlename);
-    ph1->GetXaxis()->SetTitle("PH1");
-    tree->Draw("ph1*0.0001 >> ph1", range);
-
-    c1->cd(3);
-    TH1D * ph2 = new TH1D("ph2", range, 16, 0.5, 16.5);
-    sprintf(titlename, "PH2 (%.1f - %.1f)", tan_low, tan_up);
-    ph2->SetTitle(titlename);
-    ph2->GetXaxis()->SetTitle("PH2");
-    tree->Draw("ph2*0.0001 >> ph2", range);
+    // Create and draw histograms
+    createAndDrawHistogram(1, "phsum", "PHsum", "ph1+ph2", 32, 0.5, 32.5);
+    createAndDrawHistogram(2, "ph1", "PH1", "ph1", 16, 0.5, 16.5);
+    createAndDrawHistogram(3, "ph2", "PH2", "ph2", 16, 0.5, 16.5);
 
     gStyle->SetOptStat("em");
     gStyle->SetStatY(0.9);
@@ -665,24 +733,7 @@ void ph_vph(TCanvas *c1, TTree *tree, Int_t i, Double_t interval)
     gStyle->SetStatW(0.3);
     gStyle->SetStatH(0.25);
 
-    c1->cd(4);
-    TH1D * vphsum = new TH1D("vphsum", range, 200, 0, 200);
-    sprintf(titlename, "VPHsum (%.1f - %.1f)", tan_low, tan_up);
-    vphsum->SetTitle(titlename);
-    vphsum->GetXaxis()->SetTitle("VPHsum");
-    tree->Draw("(ph1+ph2)%10000 >> vphsum", range);
-
-    c1->cd(5);
-    TH1D * vph1 = new TH1D("vph1", range, 100, 0, 100);
-    sprintf(titlename, "VPH1 (%.1f - %.1f)", tan_low, tan_up);
-    vph1->SetTitle(titlename);
-    vph1->GetXaxis()->SetTitle("VPH1");
-    tree->Draw("ph1%10000 >> vph1", range);
-
-    c1->cd(6);
-    TH1D * vph2 = new TH1D("vph2", range, 100, 0, 100);
-    sprintf(titlename, "VPH2 (%.1f - %.1f)", tan_low, tan_up);
-    vph2->SetTitle(titlename);
-    vph2->GetXaxis()->SetTitle("VPH2");
-    tree->Draw("ph2%10000 >> vph2", range);
+    createAndDrawHistogram(4, "vphsum", "VPHsum", "vph1+vph2", 2 * vph_range, 0, 2 * vph_range);
+    createAndDrawHistogram(5, "vph1", "VPH1", "vph1", vph_range, 0, vph_range);
+    createAndDrawHistogram(6, "vph2", "VPH2", "vph2", vph_range, 0, vph_range);
 }

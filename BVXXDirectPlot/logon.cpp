@@ -4,7 +4,7 @@
 void logon()
 {
     // font
-    Int_t fontid = 42;                         // 42=Helvetica, 132=Times
+    int fontid = 42;                         // 42=Helvetica, 132=Times
     gStyle->SetStatFont(fontid);               // 統計box内
     gStyle->SetLabelFont(fontid, "xyz");       // 軸ラベル（数値）
     gStyle->SetTitleFont(fontid, "xyz");       // 軸title
@@ -23,7 +23,7 @@ void logon()
     gROOT->GetColor(94)->SetRGB( 200./255., 200./255., 203./255.); // light gray
 
     // main color
-    Int_t colorid = 1;
+    int colorid = 1;
     gStyle->SetAxisColor(colorid, "xyz");        // 軸
     gStyle->SetLabelColor(colorid, "xyz");       // 軸ラベル（数値）
     gStyle->SetTitleColor(colorid, "xyz");       // 軸title
