@@ -1,6 +1,7 @@
 #pragma once
 
 #include <TColor.h>
+#include <variant>
 
 namespace MyPalette {
     enum class Palette {
@@ -8,7 +9,7 @@ namespace MyPalette {
         kBirdDark = 115,
     };
 
-    void SetPalette(int palette, UInt_t NContours = 256, Float_t alpha = 1.0);
-    void RedWhiteBlue(UInt_t NContours, Float_t alpha);
-    void BirdDark(UInt_t NContours, Float_t alpha);
+    void SetPalette(std::variant<int, std::string, Palette, EColorPalette> palette, uint32_t NContours = 256U);
+    void RedWhiteBlue(uint32_t NContours);
+    void BirdDark(uint32_t NContours);
 }

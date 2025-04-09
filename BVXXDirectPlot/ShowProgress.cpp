@@ -8,8 +8,8 @@
 void ShowProgress(int &page, double progress)
 {
     if (progress < 1.0) page += 1;
-    int barWidth = 30;
-    int bar_length = barWidth * progress;
+    uint8_t barWidth = 30;
+    uint8_t bar_length = static_cast<uint8_t>(barWidth * progress);
 
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(1) << (progress * 100);
@@ -17,7 +17,7 @@ void ShowProgress(int &page, double progress)
 
     std::cout << " Progress [";
 
-    for (int i = 0; i < barWidth; ++i)
+    for (uint8_t i = 0; i < barWidth; ++i)
     {
         if (i < bar_length) std::cout << "=";
         else if (i == bar_length) std::cout << ">";
