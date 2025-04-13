@@ -1,5 +1,3 @@
-// 2025.4.5 kobayashi
-
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -22,7 +20,6 @@
 #include <TStyle.h>
 #include <TH1D.h>
 #include <TH2D.h>
-#include <TProfile2D.h>
 #include <TF1.h>
 #include <TGraph.h>
 #include <TStopwatch.h>
@@ -35,6 +32,7 @@
 #include <ROOT6/MyUtil.hpp>
 #include <ROOT6/MyPalette.hpp>
 #include <ROOT6/SensorArray.hpp>
+#include <ROOT6/StderrSuppressor.hpp>
 #include "main.hpp"
 
 // Ctrl+Cで終了したときの処理用にグローバル変数を定義
@@ -50,7 +48,7 @@ void handleSIGINT(int) {
         global_c1->Print((global_output + "]").c_str());
         std::cout << "Output PDF file closed and saved. ***" << std::endl;
         std::cout << " Output     : " << global_output << std::endl;
-    } else {
+    } else { // プロット開始前はそのまま終了
         std::cout << "Terminated. ***" << std::endl;
     }
 
@@ -63,31 +61,31 @@ int main(int argc, char* argv[])
     std::signal(SIGINT, handleSIGINT);
 
     // 引数の数を確認
-    if (argc < 3) {
-        std::cerr << "\n Usage: " << argv[0] << " bvxx_file pl [opsion]\n" << std::endl;
+    if (argc < 2) {
+        std::cerr << "\n Usage: " << argv[0] << " bvxx_file [opsion]\n" << std::endl;
         return 1;
     }
 
     // コマンドライン引数を解析
     const std::string bvxxfile = argv[1];
-    const int pl = std::stoi(argv[2]);
 
     // 一通り完成したらargparseで受け取れるように変更する
     std::variant<int, std::string, MyPalette::Palette, EColorPalette> Palette;
-    if (argc > 3) {
+    if (argc > 2) {
         try {
-            Palette = std::stoi(argv[3]); // argv[3]を整数として解釈
+            Palette = std::stoi(argv[2]); // argv[2]を整数として解釈
         } catch (const std::invalid_argument&) {
-            Palette = argv[3]; // 認識できない場合は文字列として扱う
+            Palette = argv[2]; // 認識できない場合は文字列として扱う
         }
     } else {
         Palette = kBird; // デフォルトのパレットはkBird
     }
-    const std::string outputfile = (argc > 4) ? argv[4] : bvxxfile;
+    const std::string outputfile = (argc > 3) ? argv[3] : bvxxfile;
     const std::string output = (outputfile.size() > 4 &&
                                 outputfile.substr(outputfile.size() - 4) == ".pdf")
                                 ? outputfile
                                 : outputfile + ".pdf";
+    const int pl = -1;
     const double TD_range[2] = {0.0, 0.0};
     const double angle_max = 6.0;
     const double angle_resolution = 0.1;
@@ -144,9 +142,9 @@ int main(int argc, char* argv[])
     );
 
     // 処理時間を計測
-    TStopwatch t;
+    TStopwatch sw;
 
-    // ROOTのメッセージを非表示に設定
+    // エラーメッセージ未満のROOTのメッセージを非表示に設定
     gErrorIgnoreLevel = kError;
 
     // TTreeの作成
@@ -197,73 +195,154 @@ int main(int argc, char* argv[])
     uint32_t NoTcount_same[72] = {0};
     double sensor_dr_sum[72] = {0.0};
     double sensor_dz_sum[72] = {0.0};
-    if (br.Begin(bvxxfile, pl, 0))
-    {
-        vxx::HashEntry h;
-        vxx::base_track_t b;
 
-        while (br.NextHashEntry(h))
-        {
-            while (br.NextBaseTrack(b))
-            {
-                ShotID1 = vxx::hts_shot_id(b.m[0].col, b.m[0].row);
-                ShotID2 = vxx::hts_shot_id(b.m[1].col, b.m[1].row);
-                ViewID1 = ShotID1 / NumberOfImager;
-                ViewID2 = ShotID2 / NumberOfImager;
-                ImagerID1 = ShotID1 % NumberOfImager;
-                ImagerID2 = ShotID2 % NumberOfImager;
+    StderrSuppressor sup; // 標準エラー出力を抑制するためのオブジェクト
+    bool plDetected = false;
+    if (pl == -1) { // PL番号が指定されていない場合
+        // PL番号を0から999まで試す。正しいPL番号が見つかるまでのエラー出力をStderrSuppressorで抑制する
+        sup.suppress(); // 標準エラー出力の抑制開始
+        for (int pli = 0; pli < 1000; ++pli) {
+            if (br.Begin(bvxxfile, pli, 0)) {
+                sup.restore(); // 見つかったら標準エラー出力の抑制を解除
+                std::cout << "PL" << Form("%03d", pli) << " Loading..." << std::endl;
 
-                x = b.x;
-                y = b.y;
-                ax = b.ax;
-                ay = b.ay;
-                ph1 = static_cast<uint8_t>(b.m[0].ph * 0.0001);
-                ph2 = static_cast<uint8_t>(b.m[1].ph * 0.0001);
-                vph1 = static_cast<uint32_t>(b.m[0].ph % 10000);
-                vph2 = static_cast<uint32_t>(b.m[1].ph % 10000);
-                ax1 = b.m[0].ax;
-                ay1 = b.m[0].ay;
-                ax2 = b.m[1].ax;
-                ay2 = b.m[1].ay;
+                vxx::HashEntry h;
+                vxx::base_track_t b;
 
-                dax1 = ax - ax1;
-                day1 = ay - ay1;
-                dax2 = ax - ax2;
-                day2 = ay - ay2;
-                dz = b.m[1].z - b.m[0].z;
-                dx = (ax - 0.5 * (ax1 + ax2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
-                dy = (ay - 0.5 * (ay1 + ay2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
-                tan = sqrt(ax * ax + ay * ay);
-                lin = sqrt(dax1 * dax1 + day1 * day1 + dax2 * dax2 + day2 * day2); // 飛跡の直線性
-                linl = sqrt(
-                    ((ax * ay1 - ay * ax1) / tan) * ((ax * ay1 - ay * ax1) / tan) +
-                    ((ax * ay2 - ay * ax2) / tan) * ((ax * ay2 - ay * ax2) / tan)
-                ); // 飛跡のlateral方向の直線性
+                while (br.NextHashEntry(h)) {
+                    while (br.NextBaseTrack(b)) {
+                        ShotID1 = vxx::hts_shot_id(b.m[0].col, b.m[0].row);
+                        ShotID2 = vxx::hts_shot_id(b.m[1].col, b.m[1].row);
+                        ViewID1 = ShotID1 / NumberOfImager;
+                        ViewID2 = ShotID2 / NumberOfImager;
+                        ImagerID1 = ShotID1 % NumberOfImager;
+                        ImagerID2 = ShotID2 % NumberOfImager;
 
-                uniqueViewID2.insert(ViewID2); // 視野数のカウント
-                uniqueViewID1.insert(ViewID1); // 視野数のカウント
-                NoTcount[0][ImagerID2]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
-                NoTcount[1][ImagerID1]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+                        x = b.x;
+                        y = b.y;
+                        ax = b.ax;
+                        ay = b.ay;
+                        ph1 = static_cast<uint8_t>(b.m[0].ph * 0.0001);
+                        ph2 = static_cast<uint8_t>(b.m[1].ph * 0.0001);
+                        vph1 = static_cast<uint32_t>(b.m[0].ph % 10000);
+                        vph2 = static_cast<uint32_t>(b.m[1].ph % 10000);
+                        ax1 = b.m[0].ax;
+                        ay1 = b.m[0].ay;
+                        ax2 = b.m[1].ax;
+                        ay2 = b.m[1].ay;
 
-                // 両面のmicro trackが同じImagerで検出された場合
-                if (ImagerID1 == ImagerID2) {
-                    NoTcount_same[ImagerID1]++; // Imagerごとの飛跡本数カウント
-                    sensor_dr_sum[ImagerID2] += sqrt(dx*dx + dy*dy); // Imagerごとの平面方向の位置ずれ
-                    sensor_dz_sum[ImagerID2] += dz; // Imagerごとのz方向の位置ずれ
+                        dax1 = ax - ax1;
+                        day1 = ay - ay1;
+                        dax2 = ax - ax2;
+                        day2 = ay - ay2;
+                        dz = b.m[1].z - b.m[0].z;
+                        dx = (ax - 0.5 * (ax1 + ax2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
+                        dy = (ay - 0.5 * (ay1 + ay2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
+                        tan = sqrt(ax * ax + ay * ay);
+                        lin = sqrt(dax1 * dax1 + day1 * day1 + dax2 * dax2 + day2 * day2); // 飛跡の直線性
+                        linl = sqrt(
+                            ((ax * ay1 - ay * ax1) / tan) * ((ax * ay1 - ay * ax1) / tan) +
+                            ((ax * ay2 - ay * ax2) / tan) * ((ax * ay2 - ay * ax2) / tan)
+                        ); // 飛跡のlateral方向の直線性
+
+                        uniqueViewID2.insert(ViewID2); // 視野数のカウント
+                        uniqueViewID1.insert(ViewID1); // 視野数のカウント
+                        NoTcount[0][ImagerID2]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+                        NoTcount[1][ImagerID1]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+
+                        // 両面のmicro trackが同じImagerで検出された場合
+                        if (ImagerID1 == ImagerID2) {
+                            NoTcount_same[ImagerID1]++; // Imagerごとの飛跡本数カウント
+                            sensor_dr_sum[ImagerID2] += sqrt(dx*dx + dy*dy); // Imagerごとの平面方向の位置ずれ
+                            sensor_dz_sum[ImagerID2] += dz; // Imagerごとのz方向の位置ずれ
+                        }
+
+                        tree->Fill();
+
+                        if ((ph1+ph2)>24 && tan>1.0 && tan<1.1) subtree->Fill();
+                    }
                 }
-
-                tree->Fill();
-
-                if ((ph1+ph2)>24 && tan>1.0 && tan<1.1) subtree->Fill();
+                br.End();
+                plDetected = true;
+                break; // 成功したらループを抜ける
             }
         }
-        br.End();
-    }
+        if (!plDetected) {
+            std::cerr << "Error: Failed to load bvxx file. Try to use -pl option." << std::endl;
+            return 1;
+        }
+    } else { // PL番号が指定されている場合
+        if (br.Begin(bvxxfile, pl, 0)) {
+            std::cout << "PL" << Form("%03d", pl) << " Loading..." << std::endl;
+
+            vxx::HashEntry h;
+            vxx::base_track_t b;
+
+            while (br.NextHashEntry(h)) {
+                while (br.NextBaseTrack(b)) {
+                    ShotID1 = vxx::hts_shot_id(b.m[0].col, b.m[0].row);
+                    ShotID2 = vxx::hts_shot_id(b.m[1].col, b.m[1].row);
+                    ViewID1 = ShotID1 / NumberOfImager;
+                    ViewID2 = ShotID2 / NumberOfImager;
+                    ImagerID1 = ShotID1 % NumberOfImager;
+                    ImagerID2 = ShotID2 % NumberOfImager;
+
+                    x = b.x;
+                    y = b.y;
+                    ax = b.ax;
+                    ay = b.ay;
+                    ph1 = static_cast<uint8_t>(b.m[0].ph * 0.0001);
+                    ph2 = static_cast<uint8_t>(b.m[1].ph * 0.0001);
+                    vph1 = static_cast<uint32_t>(b.m[0].ph % 10000);
+                    vph2 = static_cast<uint32_t>(b.m[1].ph % 10000);
+                    ax1 = b.m[0].ax;
+                    ay1 = b.m[0].ay;
+                    ax2 = b.m[1].ax;
+                    ay2 = b.m[1].ay;
+
+                    dax1 = ax - ax1;
+                    day1 = ay - ay1;
+                    dax2 = ax - ax2;
+                    day2 = ay - ay2;
+                    dz = b.m[1].z - b.m[0].z;
+                    dx = (ax - 0.5 * (ax1 + ax2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
+                    dy = (ay - 0.5 * (ay1 + ay2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
+                    tan = sqrt(ax * ax + ay * ay);
+                    lin = sqrt(dax1 * dax1 + day1 * day1 + dax2 * dax2 + day2 * day2); // 飛跡の直線性
+                    linl = sqrt(
+                        ((ax * ay1 - ay * ax1) / tan) * ((ax * ay1 - ay * ax1) / tan) +
+                        ((ax * ay2 - ay * ax2) / tan) * ((ax * ay2 - ay * ax2) / tan)
+                    ); // 飛跡のlateral方向の直線性
+
+                    uniqueViewID2.insert(ViewID2); // 視野数のカウント
+                    uniqueViewID1.insert(ViewID1); // 視野数のカウント
+                    NoTcount[0][ImagerID2]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+                    NoTcount[1][ImagerID1]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+
+                    // 両面のmicro trackが同じImagerで検出された場合
+                    if (ImagerID1 == ImagerID2) {
+                        NoTcount_same[ImagerID1]++; // Imagerごとの飛跡本数カウント
+                        sensor_dr_sum[ImagerID2] += sqrt(dx*dx + dy*dy); // Imagerごとの平面方向の位置ずれ
+                        sensor_dz_sum[ImagerID2] += dz; // Imagerごとのz方向の位置ずれ
+                    }
+
+                    tree->Fill();
+
+                    if ((ph1+ph2)>24 && tan>1.0 && tan<1.1) subtree->Fill();
+                }
+            }
+            br.End();
+        }
+    } // bvxxファイルの読み込み終了
 
     int fieldsOfView[2] = {uniqueViewID2.size(), uniqueViewID1.size()}; // 視野数。fieldsOfView[i]とLayeriが対応
 
-    const double elapsedtime_read = t.CpuTime();
-    std::cout << "TTree created. - Elapsed " << elapsedtime_read << " [s] (CPU)" << std::endl;
+    double elapsed_time = sw.RealTime();
+    double cpu_time = sw.CpuTime();
+    std::cout << TString::Format(
+        "bvxx file successfully loaded. - Elapsed %.2f [s] (CPU: %.2f [s])", 
+        elapsed_time, cpu_time
+    ) << std::endl;
 
     // 情報表示
     const size_t entries = tree->GetEntriesFast();
@@ -271,20 +350,18 @@ int main(int argc, char* argv[])
     std::cout << " # of BT    : " << entries << " tracks" << std::endl;
 
     // プロット開始
-    const TDatime starttime;
-    uint32_t year = starttime.GetYear();
-    uint8_t month = starttime.GetMonth();
-    uint8_t day = starttime.GetDay();
-    uint8_t hour = starttime.GetHour();
-    uint8_t minute = starttime.GetMinute();
-    uint8_t second = starttime.GetSecond();
-	const TString StartTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
-    t.Start();
-	std::cout << " Plot start : " << StartTime << std::endl;
+    TDatime time_now;
+    TString Time_Now = Form(
+        "%d-%02d-%02d %02d:%02d:%02d", 
+        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(), 
+        time_now.GetHour(), time_now.GetMinute(), time_now.GetSecond()
+    );
+    sw.Start();
+	std::cout << " Plot start : " << Time_Now << std::endl;
 
 	// プログレスバーの初期化
 	int page = 0;
-	const int total = 50; // 合計ページ数
+	const int total = 40; // 合計ページ数
 	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
     // カラーパレットの設定
@@ -520,16 +597,18 @@ int main(int argc, char* argv[])
     MyUtil::ShowProgress(page, 1.0);
 
     // プロット終了
-    const TDatime endtime;
-    year = endtime.GetYear();
-    month = endtime.GetMonth();
-    day = endtime.GetDay();
-    hour = endtime.GetHour();
-    minute = endtime.GetMinute();
-    second = endtime.GetSecond();
-	const TString EndTime = Form("%d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
-    double elapsedtime = t.CpuTime();
-	std::cout << "\n Plot end   : " << EndTime << " - Elapsed " << elapsedtime << " [s] (CPU)" << std::endl;
+    time_now.Set();
+    Time_Now = Form(
+        "%d-%02d-%02d %02d:%02d:%02d", 
+        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(), 
+        time_now.GetHour(), time_now.GetMinute(), time_now.GetSecond()
+    );
+    elapsed_time = sw.RealTime();
+    cpu_time = sw.CpuTime();
+    std::cout << TString::Format(
+        "\n Plot end   : %s - Elapsed %.2f [s] (CPU: %.2f [s])", 
+        Time_Now.Data(), elapsed_time, cpu_time
+    ) << std::endl;
     std::cout << " Output     : " << output << std::endl;
 
     delete c1;
