@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.13.35828.75
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BVXXDirectPlot", "BVXXDirectPlot\BVXXDirectPlot.vcxproj", "{2E4AB19E-177B-4596-A8D6-3B608D1E763E}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BvxxDirectPlot", "BvxxDirectPlot\BvxxDirectPlot.vcxproj", "{2E4AB19E-177B-4596-A8D6-3B608D1E763E}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Bvxx2RootDirect", "Bvxx2RootDirect\Bvxx2RootDirect.vcxproj", "{ABE06A5F-BA32-4566-AAC2-A4CCBD12483E}"
 EndProject

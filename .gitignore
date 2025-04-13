@@ -5,6 +5,8 @@
 
 */.vscode
 */.vscode/*
+*/*/.vscode
+*/*/.vscode/*
 *.filters
 *.vcxproj
 
