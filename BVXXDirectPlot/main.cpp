@@ -84,8 +84,9 @@ int main(int argc, char* argv[])
         Palette = kBird; // デフォルトのパレットはkBird
     }
     const std::string outputfile = (argc > 4) ? argv[4] : bvxxfile;
-    const std::string output = (outputfile.size() > 4 && outputfile.substr(outputfile.size() - 4) == ".pdf") 
-                                ? outputfile 
+    const std::string output = (outputfile.size() > 4 &&
+                                outputfile.substr(outputfile.size() - 4) == ".pdf")
+                                ? outputfile
                                 : outputfile + ".pdf";
     const double TD_range[2] = {0.0, 0.0};
     const double angle_max = 6.0;
@@ -100,9 +101,47 @@ int main(int argc, char* argv[])
     const bool invertpalette = false;
     const int fontid = 42;
     const bool showGrid = true;
+    const RankingParams rankingGroups[][3] = {
+        {
+            {0.0, 0.1, 120, 0.10, 0.05}, 
+            {0.1, 0.2,  70, 0.10, 0.05}, 
+            {0.2, 0.3,  45, 0.10, 0.05}
+        },
+        {
+            {0.3, 0.4, 25, 0.14, 0.05}, 
+            {0.4, 0.5, 20, 0.15, 0.05}, 
+            {0.5, 0.6, 15, 0.15, 0.05}
+        },
+        {
+            {0.6, 0.7, 10, 0.20, 0.05}, 
+            {0.7, 0.8,  0, 0.20, 0.05}, 
+            {0.8, 0.9,  0, 0.20, 0.05}
+        },
+        {
+            {0.9, 1.0, 0, 0.25, 0.05}, 
+            {1.0, 1.1, 0, 0.30, 0.05}, 
+            {1.1, 1.3, 0, 0.35, 0.05}
+        },
+        {
+            {1.3, 1.5, 0, 0.35, 0.05}, 
+            {1.5, 2.0, 0, 0.50, 0.05}, 
+            {2.0, 2.5, 0, 0.60, 0.05}
+        },
+        {
+            {2.5, 3.0, 0, 0.70, 0.05}, 
+            {3.0, 4.0, 0, 0.90, 0.05}, 
+            {4.0, 5.0, 0, 1.00, 0.05}
+        }
+    };
 
-    const TString da_cutX = Form("(%f * (ax < 0 ? -ax : ax) + %f)", da_cut_slope, da_cut_intercept);
-    const TString da_cutY = Form("(%f * (ay < 0 ? -ay : ay) + %f)", da_cut_slope, da_cut_intercept);
+    const TString da_cutX = Form(
+        "(%f * (ax < 0 ? -ax : ax) + %f)",
+        da_cut_slope, da_cut_intercept
+    );
+    const TString da_cutY = Form(
+        "(%f * (ay < 0 ? -ay : ay) + %f)",
+        da_cut_slope, da_cut_intercept
+    );
 
     // 処理時間を計測
     TStopwatch t;
@@ -158,7 +197,6 @@ int main(int argc, char* argv[])
     uint32_t NoTcount_same[72] = {0};
     double sensor_dr_sum[72] = {0.0};
     double sensor_dz_sum[72] = {0.0};
-    uint32_t NumberOfView = 0;
     if (br.Begin(bvxxfile, pl, 0))
     {
         vxx::HashEntry h;
@@ -174,13 +212,6 @@ int main(int argc, char* argv[])
                 ViewID2 = ShotID2 / NumberOfImager;
                 ImagerID1 = ShotID1 % NumberOfImager;
                 ImagerID2 = ShotID2 % NumberOfImager;
-
-                uniqueViewID2.insert(ViewID2); // 視野数のカウント
-                uniqueViewID1.insert(ViewID1); // 視野数のカウント
-                NoTcount[0][ImagerID2]++; // センサーごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
-                NoTcount[1][ImagerID1]++; // センサーごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
-
-                NumberOfView = std::max({NumberOfView, ViewID1, ViewID2});
 
                 x = b.x;
                 y = b.y;
@@ -200,23 +231,30 @@ int main(int argc, char* argv[])
                 dax2 = ax - ax2;
                 day2 = ay - ay2;
                 dz = b.m[1].z - b.m[0].z;
-                dx = (ax - 0.5 * (ax2 - ax1)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
-                dy = (ay - 0.5 * (ay2 - ay1)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
+                dx = (ax - 0.5 * (ax1 + ax2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
+                dy = (ay - 0.5 * (ay1 + ay2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
                 tan = sqrt(ax * ax + ay * ay);
-                lin = sqrt(dax1*dax1 + day1*day1 + dax2*dax2 + day2*day2); // 飛跡の直線性
-                linl = sqrt(((ax*ay1-ay*ax1)/tan)*((ax*ay1-ay*ax1)/tan)+((ax*ay2-ay*ax2)/tan)*((ax*ay2-ay*ax2)/tan)); // 飛跡のlateral方向の直線性
+                lin = sqrt(dax1 * dax1 + day1 * day1 + dax2 * dax2 + day2 * day2); // 飛跡の直線性
+                linl = sqrt(
+                    ((ax * ay1 - ay * ax1) / tan) * ((ax * ay1 - ay * ax1) / tan) +
+                    ((ax * ay2 - ay * ax2) / tan) * ((ax * ay2 - ay * ax2) / tan)
+                ); // 飛跡のlateral方向の直線性
 
-                // 両面のmicro trackが同じセンサーで検出された場合
+                uniqueViewID2.insert(ViewID2); // 視野数のカウント
+                uniqueViewID1.insert(ViewID1); // 視野数のカウント
+                NoTcount[0][ImagerID2]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+                NoTcount[1][ImagerID1]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+
+                // 両面のmicro trackが同じImagerで検出された場合
                 if (ImagerID1 == ImagerID2) {
-                    NoTcount_same[ImagerID1]++; // センサーごとの飛跡本数カウント
-                    sensor_dr_sum[ImagerID2] += sqrt(dx*dx + dy*dy); // センサーごとの平面方向の位置ずれ
-                    sensor_dz_sum[ImagerID2] += dz; // センサーごとのz方向の位置ずれ
+                    NoTcount_same[ImagerID1]++; // Imagerごとの飛跡本数カウント
+                    sensor_dr_sum[ImagerID2] += sqrt(dx*dx + dy*dy); // Imagerごとの平面方向の位置ずれ
+                    sensor_dz_sum[ImagerID2] += dz; // Imagerごとのz方向の位置ずれ
                 }
 
                 tree->Fill();
 
-                // if ((ph1+ph2)>24 && tan>1.0 && tan<1.1) subtree->Fill();
-                if (tan>1.0 && tan<1.1) subtree->Fill();
+                if ((ph1+ph2)>24 && tan>1.0 && tan<1.1) subtree->Fill();
             }
         }
         br.End();
@@ -306,7 +344,7 @@ int main(int argc, char* argv[])
     double LowX, UpX, LowY, UpY, bin, bin_dmap;
     float pitch;
     if (RangeX >= RangeY) {
-        pitch = 5.0;  // 5.0 mm pitch for dx, dy, dz plot
+        pitch = 5.0; // 5.0 mm pitch for dx, dy, dz plot
         LowX = MinX - 10000;
         UpX = MaxX + 10000;
         LowY = MinY - (RangeX - RangeY + 20000) * 0.5;
@@ -314,29 +352,33 @@ int main(int argc, char* argv[])
         bin = (RangeX + 20000) * 0.001;
         bin_dmap = (RangeX + 20000) * 0.0002;
         if (RangeX < 100000) {
-            pitch = 1.0;  // 1.0 mm pitch for dx, dy, dz plot
+            pitch = 1.0; // 1.0 mm pitch for dx, dy, dz plot
             bin_dmap *= 5;
         } else if (RangeX < 150000) {
-            pitch = 2.5;  // 2.5 mm pitch for dx, dy, dz plot
+            pitch = 2.5; // 2.5 mm pitch for dx, dy, dz plot
             bin_dmap *= 2;
         }
     } else {
-        pitch = 5.0;  // 5.0 mm pitch for dx, dy, dz plot
+        pitch = 5.0; // 5.0 mm pitch for dx, dy, dz plot
         LowX = MinX - (RangeY - RangeX + 20000) * 0.5;
         UpX = MaxX + (RangeY - RangeX + 20000) * 0.5;
         LowY = MinY - 10000;
         UpY = MaxY + 10000;
         bin = (RangeY + 20000) * 0.001;
-        bin_dmap = (RangeY + 20000) * 0.0002;  // 5.0mm pitch
+        bin_dmap = (RangeY + 20000) * 0.0002; // 5.0mm pitch
         if (RangeY < 100000) {
-            pitch = 1.0;  // 1.0 mm pitch for dx, dy, dz plot
+            pitch = 1.0; // 1.0 mm pitch for dx, dy, dz plot
             bin_dmap *= 5;
         } else if (RangeY < 150000) {
-            pitch = 2.5;  // 2.5 mm pitch for dx, dy, dz plot
+            pitch = 2.5; // 2.5 mm pitch for dx, dy, dz plot
             bin_dmap *= 2;
         }
     }
     const double AreaParam[5] = {bin, LowX, UpX, LowY, UpY};
+
+    position(c1, tree, AreaParam, TD_range);
+    c1->Print(output.c_str()); c1->Clear();
+    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
     position_projection(c1, tree, entries, TD_range, AreaParam);
     c1->Print(output.c_str()); c1->Clear();
@@ -344,56 +386,56 @@ int main(int argc, char* argv[])
     gDirectory->Delete("track_density");
 	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // angle(c1, tree, angle_max, angle_resolution);
-    // c1->Print(output.c_str()); c1->Clear();
-    // MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    angle(c1, tree, angle_max, angle_resolution);
+    c1->Print(output.c_str()); c1->Clear();
+    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // angle_projection(c1, tree, angle_max, angle_resolution);
-    // c1->Print(output.c_str()); c1->Clear();
-    // gDirectory->Delete("angle*");
-    // MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    angle_projection(c1, tree, angle_max, angle_resolution);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("angle*");
+    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // d_angle(c1, tree);
-    // c1->Print(output.c_str()); c1->Clear();
-    // gDirectory->Delete("*a*");
-	// MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    d_angle(c1, tree);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("*a*");
+	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // d_angle_Ncut(c1, tree, da_cutX, da_cutY, da_cutPH);
-    // c1->Print(output.c_str()); c1->Clear();
-    // gDirectory->Delete("*a*");
-	// MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    d_angle_Ncut(c1, tree, da_cutX, da_cutY, da_cutPH);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("*a*");
+	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 1);
-    // c1->Print(output.c_str()); c1->Clear();
-    // gDirectory->Delete("*a*");
-    // MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 1);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("*a*");
+    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 2);
-    // c1->Print(output.c_str()); c1->Clear();
-    // gDirectory->Delete("*a*");
-    // MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 2);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("*a*");
+    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // phvph_2D(c1, tree, vph_range, angle_max, angle_resolution);
-    // c1->Print(output.c_str()); c1->Clear();
-    // gDirectory->Delete("*ph*");
-    // MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    phvph_2D(c1, tree, vph_range, angle_max, angle_resolution);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("*ph*");
+    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // for (uint8_t i = 0; i < 10; ++i) // 0.0-0.1 ~ 0.9-1.0
-    // {
-    //     phvph_1D(c1, tree, vph_range, i, 0.1);
-    //     c1->Print(output.c_str()); c1->Clear();
-    //     gDirectory->Delete("*ph*");
-    //     MyUtil::ShowProgress(page, static_cast<double>(page) / total);
-    // }
+    for (uint8_t i = 0; i < 10; ++i) // 0.0-0.1 ~ 0.9-1.0
+    {
+        phvph_1D(c1, tree, vph_range, i, 0.1);
+        c1->Print(output.c_str()); c1->Clear();
+        gDirectory->Delete("*ph*");
+        MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    }
 
-    // const uint8_t phvph_loop = static_cast<uint8_t>((angle_max - 0.1) * 2) + 2;
-    // for (uint8_t i = 2; i < phvph_loop; ++i) // 1.0-1.1 ~
-    // {
-    //     phvph_1D(c1, tree, vph_range, i, 0.5);
-    //     c1->Print(output.c_str()); c1->Clear();
-    //     gDirectory->Delete("*ph*");
-    //     MyUtil::ShowProgress(page, static_cast<double>(page) / total);
-    // }
+    const uint8_t phvph_loop = static_cast<uint8_t>((angle_max - 0.1) * 2) + 2;
+    for (uint8_t i = 2; i < phvph_loop; ++i) // 1.0-1.1 ~
+    {
+        phvph_1D(c1, tree, vph_range, i, 0.5);
+        c1->Print(output.c_str()); c1->Clear();
+        gDirectory->Delete("*ph*");
+        MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    }
 
     // Set VPH range of track ranking plot
     uint32_t range = 200;
@@ -406,85 +448,58 @@ int main(int argc, char* argv[])
     TH1D* vph_temp = new TH1D("vph_temp", "vph_temp", 51, 15, 270);
     TCut cutvph_temp;
 
-    // do {
-    //     range_min -= 5;
-    //     if (range_min < 60) {
-    //         vph_entries = vph_temp->GetEntries();
-    //         vph_sigma = vph_temp->GetStdDev();
-    //         range = vph_sigma * 3;
-    //         if (vph_entries < 1000) cut_type = 1;
-    //     }
+    do {
+        range_min -= 5;
+        if (range_min < 60) {
+            vph_entries = vph_temp->GetEntries();
+            vph_sigma = vph_temp->GetStdDev();
+            range = vph_sigma * 3;
+            if (vph_entries < 1000) cut_type = 1;
+        }
 
-    //     range_max = range_min + range;
+        range_max = range_min + range;
 
-    //     if (cut_type == 0) {
-    //         cutvph_temp = Form("(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.03 && lin<0.05", range_min, range_max);
-    //     } else {
-    //         cutvph_temp = Form("(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.08 && lin<0.10", range_min, range_max);
-    //     }
-    //     tree->Draw("(vph1+vph2)>>vph_temp", cutvph_temp, "goff");
-    //     vph_mean = vph_temp->GetMean();
-    //     if (range_min < 15) break;
-    // } while (vph_mean < range_min + 0.5 * vph_sigma);
+        if (cut_type == 0) {
+            cutvph_temp = Form(
+            "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.03 && lin<0.05", 
+            range_min, range_max
+            );
+        } else {
+            cutvph_temp = Form(
+            "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.08 && lin<0.10", 
+            range_min, range_max
+            );
+        }
+        tree->Draw("(vph1+vph2)>>vph_temp", cutvph_temp, "goff");
+        vph_mean = vph_temp->GetMean();
+        if (range_min < 15) break;
+    } while (vph_mean < range_min + 0.5 * vph_sigma);
 
-    // TF1* gaus = new TF1("gaus", "gaus", -10000, 10000);
-    // vph_temp->Fit("gaus", "q 0", "", range_min, vph_mean + vph_sigma);
-    // uint32_t vph_standard = gaus->GetParameter(1) + 5;
-    // if (vph_standard < ranking_range_min) vph_standard = ranking_range_min;
-    // gDirectory->Delete("*_temp");
-    // delete gaus;
+    TF1* gaus = new TF1("gaus", "gaus", -10000, 10000);
+    vph_temp->Fit("gaus", "q 0", "", range_min, vph_mean + vph_sigma);
+    uint32_t vph_standard = gaus->GetParameter(1) + 5;
+    if (vph_standard < ranking_range_min) vph_standard = ranking_range_min;
+    gDirectory->Delete("*_temp");
+    delete gaus;
 
-    // const RankingParams rankingGroups[][3] = {
-    //     {
-    //         {0.0, 0.1, 120, 0.10, 0.05}, 
-    //         {0.1, 0.2,  70, 0.10, 0.05}, 
-    //         {0.2, 0.3,  45, 0.10, 0.05}
-    //     },
-    //     {
-    //         {0.3, 0.4, 25, 0.14, 0.05}, 
-    //         {0.4, 0.5, 20, 0.15, 0.05}, 
-    //         {0.5, 0.6, 15, 0.15, 0.05}
-    //     },
-    //     {
-    //         {0.6, 0.7, 10, 0.20, 0.05}, 
-    //         {0.7, 0.8,  0, 0.20, 0.05}, 
-    //         {0.8, 0.9,  0, 0.20, 0.05}
-    //     },
-    //     {
-    //         {0.9, 1.0, 0, 0.25, 0.05}, 
-    //         {1.0, 1.1, 0, 0.30, 0.05}, 
-    //         {1.1, 1.3, 0, 0.35, 0.05}
-    //     },
-    //     {
-    //         {1.3, 1.5, 0, 0.35, 0.05}, 
-    //         {1.5, 2.0, 0, 0.50, 0.05}, 
-    //         {2.0, 2.5, 0, 0.60, 0.05}
-    //     },
-    //     {
-    //         {2.5, 3.0, 0, 0.70, 0.05}, 
-    //         {3.0, 4.0, 0, 0.90, 0.05}, 
-    //         {4.0, 5.0, 0, 1.00, 0.05}
-    //     }
-    // };
+    for (const auto& params : rankingGroups) {
+        ranking(c1, tree, params, vph_standard);
+        c1->Print(output.c_str()); c1->Clear();
+        gDirectory->Delete("rank*");
+        MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    }
 
-    // for (const auto& params : rankingGroups) {
-    //     ranking(c1, tree, params, vph_standard);
-    //     c1->Print(output.c_str()); c1->Clear();
-    //     gDirectory->Delete("rank*");
-    //     MyUtil::ShowProgress(page, static_cast<double>(page) / total);
-    // }
+    dxdydz(c1, subtree, AreaParam, bin_dmap, pitch);
+    c1->Print(output.c_str()); c1->Clear();
+    gDirectory->Delete("*_temp");
+    gDirectory->Delete("dz*");
+    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    // dxdydz(c1, subtree, AreaParam, bin_dmap, pitch);
-    // c1->Print(output.c_str()); c1->Clear();
-    // gDirectory->Delete("*_temp");
-    // gDirectory->Delete("dz*");
-    // MyUtil::ShowProgress(page, static_cast<double>(page) / total);
-
-    // dxdy(c1, subtree, AreaParam, bin_dmap, pitch);
-    // c1->Print(output.c_str()); c1->Clear();
-	// MyUtil::ShowProgress(page, static_cast<double>(page) / total);
-
+    dxdy(c1, subtree, AreaParam, bin_dmap, pitch);
+    c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("d*");
+	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+
     gDirectory->Delete("subtree");
 
     sensor_not(c1, fieldsOfView, NoTcount);
@@ -549,7 +564,9 @@ void position(TCanvas *c1, TTree *tree, const double AreaParam[5], const double 
     tree->Draw("y*0.001:x*0.001 >> position_2D", "", "colz");
 }
 
-void position_projection(TCanvas *c1, TTree *tree, const size_t entries, const double *TD_range, const double AreaParam[5]) noexcept
+void position_projection(
+    TCanvas *c1, TTree *tree, const size_t entries, const double *TD_range, const double AreaParam[5]
+) noexcept
 {
     gStyle->SetOptStat("");
 
@@ -728,27 +745,33 @@ void d_angle(TCanvas *c1, TTree *tree) noexcept
 
     createAndDrawHistogram(1, 
         "axdax1", 
-        "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1}", 
+        "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};"
+        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1}",
         "dax1:ax"
     );
     createAndDrawHistogram(2, 
         "ayday1", 
-        "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1}", 
+        "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};"
+        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1}", 
         "day1:ay"
     );
     createAndDrawHistogram(3, 
         "axdax2", 
-        "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2}", 
+        "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};"
+        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2}", 
         "dax2:ax"
     );
     createAndDrawHistogram(4, 
         "ayday2", 
-        "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2}", 
+        "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};"
+        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2}", 
         "day2:ay"
     );
 }
 
-void d_angle_Ncut(TCanvas *c1, TTree *tree, const TString da_cutX, const TString da_cutY, const uint8_t da_cutPH) noexcept
+void d_angle_Ncut(
+    TCanvas *c1, TTree *tree, const TString da_cutX, const TString da_cutY, const uint8_t da_cutPH
+) noexcept
 {
     gStyle->SetOptStat("");
     gStyle->SetTitleOffset(1.1, "x");
@@ -762,7 +785,9 @@ void d_angle_Ncut(TCanvas *c1, TTree *tree, const TString da_cutX, const TString
     }
 
     // ヒストグラムを作成して描画するためのラムダ式
-    auto createAndDrawHistogram = [&](int pad, const char* name, const char* title, const char* drawExpr, const TCut& cut) {
+    auto createAndDrawHistogram = [&](
+        int pad, const char* name, const char* title, const char* drawExpr, const TCut& cut
+    ) {
         c1->cd(pad);
         TH2D* hist = new TH2D(name, title, 100, -2.0, 2.0, 100, -0.1, 0.1);
         tree->Draw((std::string(drawExpr) + " >> " + name).c_str(), cut, "colz");
@@ -778,14 +803,16 @@ void d_angle_Ncut(TCanvas *c1, TTree *tree, const TString da_cutX, const TString
     createAndDrawHistogram(
         1, 
         "axdax1", 
-        "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1} : tan#it{#theta}_{x} (Noise cut);tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1}", 
+        "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1} : tan#it{#theta}_{x} (Noise cut);"
+        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1}", 
         "dax1:ax", 
         cut_temp
     );
     createAndDrawHistogram(
         2, 
         "ayday1", 
-        "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1} : tan#it{#theta}_{y} (Noise cut);tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1}", 
+        "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1} : tan#it{#theta}_{y} (Noise cut);"
+        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1}", 
         "day1:ay", 
         cut_temp
     );
@@ -799,20 +826,24 @@ void d_angle_Ncut(TCanvas *c1, TTree *tree, const TString da_cutX, const TString
     createAndDrawHistogram(
         3, 
         "axdax2", 
-        "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2} : tan#it{#theta}_{x} (Noise cut);tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2}", 
+        "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2} : tan#it{#theta}_{x} (Noise cut);"
+        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2}", 
         "dax2:ax", 
         cut_temp
     );
     createAndDrawHistogram(
         4, 
         "ayday2", 
-        "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2} : tan#it{#theta}_{y} (Noise cut);tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2}", 
+        "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2} : tan#it{#theta}_{y} (Noise cut);"
+        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2}", 
         "day2:ay", 
         cut_temp
     );
 }
 
-void d_angle_rl(TCanvas *c1, TTree *tree, const double angle_max, const double dlat_range, const double drad_range, const int face) noexcept
+void d_angle_rl(
+    TCanvas *c1, TTree *tree, const double angle_max, const double dlat_range, const double drad_range, const int face
+) noexcept
 {
     gStyle->SetOptStat("");
     gStyle->SetStatY(0.97);
@@ -826,7 +857,9 @@ void d_angle_rl(TCanvas *c1, TTree *tree, const double angle_max, const double d
 
     TString suffix = (face == 1) ? "1" : "2";
 
-    auto createAndDrawHistogram = [&](int pad, const char* name, const char* title, const char* drawExpr, double xMax, double yMin, double yMax) {
+    auto createAndDrawHistogram = [&](
+        int pad, const char* name, const char* title, const char* drawExpr, double xMax, double yMin, double yMax
+    ) {
         c1->cd(pad);
         TH2D* hist = new TH2D(name, title, 200, 0.0, xMax, 200, yMin, yMax);
         tree->Draw(Form(drawExpr, suffix.Data(), suffix.Data(), suffix.Data()), "", "colz");
@@ -835,7 +868,15 @@ void d_angle_rl(TCanvas *c1, TTree *tree, const double angle_max, const double d
     createAndDrawHistogram(
         1, 
         "lat", 
-        Form("#Deltalateral %s;tan#it{#theta};#frac{tan#it{#theta}_{x%s}^{ }#times tan#it{#theta}_{y}^{ }#plus tan#it{#theta}_{y%s}^{ }#times tan#it{#theta}_{x}}{#sqrt{tan^{2}#it{#theta}_{x}^{ }#plus tan^{2}#it{#theta}_{y}}}", suffix.Data(), suffix.Data(), suffix.Data()), 
+        Form(
+            "#Deltalateral %s;tan#it{#theta};"
+            "#frac{tan#it{#theta}_{x%s}^{ }#times tan#it{#theta}_{y}^{ }"
+            "#plus tan#it{#theta}_{y%s}^{ }#times tan#it{#theta}_{x}}"
+            "{#sqrt{tan^{2}#it{#theta}_{x}^{ }#plus tan^{2}#it{#theta}_{y}}}",
+            suffix.Data(),
+            suffix.Data(),
+            suffix.Data()
+        ),
         "(ax%s*ay-ay%s*ax)/tan:tan>>lat", 
         angle_max, 
         -dlat_range, 
@@ -844,7 +885,16 @@ void d_angle_rl(TCanvas *c1, TTree *tree, const double angle_max, const double d
     createAndDrawHistogram(
         2, 
         "rad", 
-        Form("#Deltaradial %s;tan#it{#theta};#frac{tan#it{#theta}_{x%s}^{ }#times tan#it{#theta}_{x}^{ }#plus tan#it{#theta}_{y%s}^{ }#times tan#it{#theta}_{y}}{#sqrt{tan^{2}#it{#theta}_{x}^{ }#plus tan^{2}#it{#theta}_{y}}}^{ }#minus #sqrt{tan^{2}#it{#theta}_{x}^{ }#plus tan^{2}#it{#theta}_{y}}", suffix.Data(), suffix.Data(), suffix.Data()), 
+        Form(
+            "#Deltaradial %s;tan#it{#theta};"
+            "#frac{tan#it{#theta}_{x%s}^{ }#times tan#it{#theta}_{x}^{ }"
+            "#plus tan#it{#theta}_{y%s}^{ }#times tan#it{#theta}_{y}}"
+            "{#sqrt{tan^{2}#it{#theta}_{x}^{ }#plus tan^{2}#it{#theta}_{y}}}^{ }"
+            "#minus #sqrt{tan^{2}#it{#theta}_{x}^{ }#plus tan^{2}#it{#theta}_{y}}",
+            suffix.Data(),
+            suffix.Data(),
+            suffix.Data()
+        ),
         "(ax%s*ax+ay%s*ay)/tan-tan:tan>>rad", 
         angle_max, 
         -drad_range, 
@@ -852,7 +902,9 @@ void d_angle_rl(TCanvas *c1, TTree *tree, const double angle_max, const double d
     );
 }
 
-void phvph_2D(TCanvas *c1, TTree *tree, const uint32_t vph_range, const double angle_max, const double angle_resolution) noexcept
+void phvph_2D(
+    TCanvas *c1, TTree *tree, const uint32_t vph_range, const double angle_max, const double angle_resolution
+) noexcept
 {
     gStyle->SetOptStat(0);
     gStyle->SetTitleOffset(1.1, "x");
@@ -865,19 +917,34 @@ void phvph_2D(TCanvas *c1, TTree *tree, const uint32_t vph_range, const double a
 
     uint32_t phvph_bin = static_cast<uint32_t>(angle_max / angle_resolution);
 
-    auto createAndDraw2DHistogram = [&](int pad, const char* name, const char* title, const char* drawExpr, int yBins, double yMin, double yMax, int NDiv) {
+    auto createAndDraw2DHistogram = [&](
+        int pad, const char* name, const char* title, const char* drawExpr,
+        int yBins, double yMin, double yMax, int NDiv
+    ) {
         c1->cd(pad);
         TH2D* hist = new TH2D(name, title, phvph_bin, 0.0, angle_max, yBins, yMin, yMax);
         tree->Draw(Form("%s:tan >> %s", drawExpr, name), "", "colz");
         hist->GetYaxis()->SetNdivisions(NDiv);
     };
 
-    createAndDraw2DHistogram(1, "phs0", "PHsum;tan#it{#theta};PHsum", "(ph1+ph2)", 27, 5.5, 32.5, 14);
-    createAndDraw2DHistogram(2, "phs1", "PH1;tan#it{#theta};PH1", "ph1", 11, 5.5, 16.5, 11);
-    createAndDraw2DHistogram(3, "phs2", "PH2;tan#it{#theta};PH2", "ph2", 11, 5.5, 16.5, 11);
-    createAndDraw2DHistogram(4, "vphs0", "VPHsum;tan#it{#theta};VPHsum", "(vph1+vph2)", 2 * vph_range, 0.5, 2 * vph_range + 0.5, 10);
-    createAndDraw2DHistogram(5, "vphs1", "VPH1;tan#it{#theta};VPH1", "vph1", vph_range, 0.5, vph_range + 0.5, 10);
-    createAndDraw2DHistogram(6, "vphs2", "VPH2;tan#it{#theta};VPH2", "vph2", vph_range, 0.5, vph_range + 0.5, 10);
+    createAndDraw2DHistogram(
+        1, "phs0", "PHsum;tan#it{#theta};PHsum", "(ph1+ph2)", 27, 5.5, 32.5, 14
+    );
+    createAndDraw2DHistogram(
+        2, "phs1", "PH1;tan#it{#theta};PH1", "ph1", 11, 5.5, 16.5, 11
+    );
+    createAndDraw2DHistogram(
+        3, "phs2", "PH2;tan#it{#theta};PH2", "ph2", 11, 5.5, 16.5, 11
+    );
+    createAndDraw2DHistogram(
+        4, "vphs0", "VPHsum;tan#it{#theta};VPHsum", "(vph1+vph2)", 2 * vph_range, 0.5, 2 * vph_range + 0.5, 10
+    );
+    createAndDraw2DHistogram(
+        5, "vphs1", "VPH1;tan#it{#theta};VPH1", "vph1", vph_range, 0.5, vph_range + 0.5, 10
+    );
+    createAndDraw2DHistogram(
+        6, "vphs2", "VPH2;tan#it{#theta};VPH2", "vph2", vph_range, 0.5, vph_range + 0.5, 10
+    );
 }
 
 void phvph_1D(TCanvas *c1, TTree *tree, const uint32_t vph_range, const uint8_t i, const double interval) noexcept
@@ -892,7 +959,10 @@ void phvph_1D(TCanvas *c1, TTree *tree, const uint32_t vph_range, const uint8_t 
     c1->Divide(3, 2);
 
     // ヒストグラムを作成して描画するためのラムダ式
-    auto createAndDrawHistogram = [&](int pad, const char* name, const char* title, const char* drawExpr, int bins, double xMin, double xMax, const double legendCoords[4]) {
+    auto createAndDrawHistogram = [&](
+        int pad, const char* name, const char* title, const char* drawExpr,
+        int bins, double xMin, double xMax, const double legendCoords[4]
+    ) {
         c1->cd(pad);
         TString histTitle = Form("%s (%.1f^{ }#leq tan#it{#theta} < %.1f);%s;", title, tan_low, tan_up, title);
         TH1D* hist = new TH1D(name, histTitle, bins, xMin, xMax);
@@ -944,14 +1014,44 @@ void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_
 
         // x, y
         c1->cd(pad);
-        TString rank_title = Form("2D TRank (%.1f^{ }#leq tan#it{#theta} < %.1f);#sqrt{(dtan#it{#theta}_{x1})^{2}^{ }#plus (dtan#it{#theta}_{y1})^{2}^{ }#plus (dtan#it{#theta}_{x2})^{2}^{ }#plus (dtan#it{#theta}_{y2})^{2}};VPHsum", param.tan_low, param.tan_up);
-        TH2D* rank = new TH2D("rank", rank_title, 50, 0.0, param.xy_lin_max, vph_standard + param.vph_max_plus, 0, vph_standard + param.vph_max_plus);
+        TString rank_title = Form(
+            "2D TRank (%.1f^{ }#leq tan#it{#theta} < %.1f);"
+            "#sqrt{(dtan#it{#theta}_{x1})^{2}^{ }#plus (dtan#it{#theta}_{y1})^{2}^{ }"
+            "#plus (dtan#it{#theta}_{x2})^{2}^{ }#plus (dtan#it{#theta}_{y2})^{2}};"
+            "VPHsum",
+            param.tan_low,
+            param.tan_up
+        );
+        TH2D* rank = new TH2D(
+            "rank", 
+            rank_title, 
+            50, 
+            0.0, 
+            param.xy_lin_max, 
+            vph_standard + param.vph_max_plus, 
+            0, 
+            vph_standard + param.vph_max_plus
+        );
         tree->Draw("(vph1+vph2):lin >> rank", range, "colz");
 
         // lateral
         c1->cd(pad + 3);
-        TString rankl_title = Form("2D TRank Lateral (%.1f^{ }#leq tan#it{#theta} < %.1f);Angular difference (Lateral);VPHsum", param.tan_low, param.tan_up);
-        TH2D* rankl = new TH2D("rankl", rankl_title, 50, 0.0, param.lat_lin_max, vph_standard + param.vph_max_plus, 0, vph_standard + param.vph_max_plus);
+        TString rankl_title = Form(
+            "2D TRank Lateral (%.1f^{ }#leq tan#it{#theta} < %.1f);"
+            "Angular difference (Lateral);VPHsum",
+            param.tan_low,
+            param.tan_up
+        );
+        TH2D* rankl = new TH2D(
+            "rankl",
+            rankl_title,
+            50,
+            0.0,
+            param.lat_lin_max,
+            vph_standard + param.vph_max_plus,
+            0,
+            vph_standard + param.vph_max_plus
+        );
         rankl->GetXaxis()->SetNdivisions(505);
         tree->Draw("(vph1+vph2):linl >> rankl", range, "colz");
     };
@@ -975,20 +1075,52 @@ void dxdydz(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double
     gStyle->SetTitleOffset(1.4, "y");
     gStyle->SetTitleOffset(1.2, "z");
 
-    TString dz_title = Form("#Deltaz (1.0 < tan#it{#theta} < 1.1);x [mm];y [mm];Average of#Deltaz [#mum] at each %.1f^{ }#times %.1f mm^{2}", pitch, pitch);
-    TString dz_1D_title = Form("#Deltaz at each %.1f^{ }#times %.1f mm^{2}     ;Average of#Deltaz [#mum] at each %.1f^{ }#times %.1f mm^{2};Frequency", pitch, pitch, pitch, pitch);
+    TString dz_title = Form(
+        "#Deltaz (1.0 < tan#it{#theta} < 1.1);x [mm];y [mm];"
+        "Average of#Deltaz [#mum] at each %.1f^{ }#times %.1f mm^{2}",
+        pitch,
+        pitch
+    );
+    TString dz_1D_title = Form(
+        "#Deltaz at each %.1f^{ }#times %.1f mm^{2}     ;"
+        "Average of#Deltaz [#mum] at each %.1f^{ }#times %.1f mm^{2};Frequency",
+        pitch,
+        pitch,
+        pitch,
+        pitch
+    );
     TH2D* dz_2D = new TH2D("dz_2D", dz_title, bin, LowX * 0.001, UpX * 0.001, bin, LowY * 0.001, UpY * 0.001);
     TH1D* dz_1D = new TH1D("dz_1D", dz_1D_title, 5000, 0, 5000);
     TH1D* dz_temp = new TH1D("dz_temp", "dz_temp", 10000, 0, 10000);
 
-    TString dx_title = Form("#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);x [mm];y [mm];Average of#Deltax [#mum] in each %.1f^{ }#times %.1f mm^{2}", pitch, pitch);
-    TString dx_1D_title = Form("#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);Average of#Deltax [#mum] in each %.1f^{ }#times %.1f mm^{2};Frequency", pitch, pitch);
+    TString dx_title = Form(
+        "#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);x [mm];y [mm];"
+        "Average of#Deltax [#mum] in each %.1f^{ }#times %.1f mm^{2}",
+        pitch,
+        pitch
+    );
+    TString dx_1D_title = Form(
+        "#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);"
+        "Average of#Deltax [#mum] in each %.1f^{ }#times %.1f mm^{2};Frequency",
+        pitch,
+        pitch
+    );
     TH2D* dx_2D = new TH2D("dx_2D", dx_title, bin, LowX * 0.001, UpX * 0.001, bin, LowY * 0.001, UpY * 0.001);
     TH1D* dx_1D = new TH1D("dx_1D", dx_1D_title, 500, -100, 100);
     TH1D* dx_temp = new TH1D("dx_temp", "dx_temp", 100, -1000, 1000);
 
-    TString dy_title = Form("#Deltay (1.0 < tan#it{#theta} < 1.1, interpolated)     ;x [mm];y [mm];Average of#Deltay [#mum] in each %.1f^{ }#times %.1f mm^{2}", pitch, pitch);
-    TString dy_1D_title = Form("#Deltay (1.0 < tan#it{#theta} < 1.1, interpolated)     ;Average of#Deltay [#mum] in each %.1f^{ }#times %.1f mm^{2};Frequency", pitch, pitch);
+    TString dy_title = Form(
+        "#Deltay (1.0 < tan#it{#theta} < 1.1, interpolated)     ;x [mm];y [mm];"
+        "Average of#Deltay [#mum] in each %.1f^{ }#times %.1f mm^{2}",
+        pitch,
+        pitch
+    );
+    TString dy_1D_title = Form(
+        "#Deltay (1.0 < tan#it{#theta} < 1.1, interpolated)     ;"
+        "Average of#Deltay [#mum] in each %.1f^{ }#times %.1f mm^{2};Frequency",
+        pitch,
+        pitch
+    );
     TH2D* dy_2D = new TH2D("dy_2D", dy_title, bin, LowX * 0.001, UpX * 0.001, bin, LowY * 0.001, UpY * 0.001);
     TH1D* dy_1D = new TH1D("dy_1D", dy_1D_title, 500, -100, 100);
     TH1D* dy_temp = new TH1D("dy_temp", "dy_temp", 100, -1000, 1000);
@@ -1000,7 +1132,11 @@ void dxdydz(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double
             // 各ビンの領域を取得
             double xcenter = dz_2D->GetXaxis()->GetBinCenter(ix);
             double ycenter = dz_2D->GetYaxis()->GetBinCenter(iy);
-            TCut area = Form("(%f-x*0.001)^2<%f^2 && (%f-y*0.001)^2<%f^2", xcenter, pitch_half, ycenter, pitch_half);
+            TCut area = Form(
+                "(%f-x*0.001)*(%f-x*0.001)<%f*%f && (%f-y*0.001)*(%f-y*0.001)<%f*%f", 
+                xcenter, xcenter, pitch_half, pitch_half, 
+                ycenter, ycenter, pitch_half, pitch_half
+            );
 
             // 各ビンの領域に対してdz, dx, dyのヒストグラムを作成
             subtree->Draw("dz >> dz_temp", area, "goff");
@@ -1097,14 +1233,34 @@ void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double b
         double LowY = AreaParam[3];
         double UpY  = AreaParam[4];
 
-        TString dx_title = Form("#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);x [mm];y [mm];Average of#Deltax [#mum] in each %.1f^{ }#times %.1f mm^{2}", pitch, pitch);
-        TString dx_1D_title = Form("#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);Average of#Deltax [#mum] in each %.1f^{ }#times %.1f mm^{2};Frequency", pitch, pitch);
+        TString dx_title = Form(
+            "#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);x [mm];y [mm];"
+            "Average of#Deltax [#mum] in each %.1f^{ }#times %.1f mm^{2}",
+            pitch,
+            pitch
+        );
+        TString dx_1D_title = Form(
+            "#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);"
+            "Average of#Deltax [#mum] in each %.1f^{ }#times %.1f mm^{2};Frequency",
+            pitch,
+            pitch
+        );
         TH1D* dx_temp = new TH1D("dx_temp", "dx_temp", 100, -1000, 1000);
         dx_2D = new TH2D("dx_2D", dx_title, bin, LowX * 0.001, UpX * 0.001, bin, LowY * 0.001, UpY * 0.001);
         dx_1D = new TH1D("dx_1D", dx_1D_title, 500, -100, 100);
 
-        TString dy_title = Form("#Deltay (1.0 < tan#it{#theta} < 1.1, interpolated)     ;x [mm];y [mm];Average of#Deltay [#mum] in each %.1f^{ }#times %.1f mm^{2}", pitch, pitch);
-        TString dy_1D_title = Form("#Deltay (1.0 < tan#it{#theta} < 1.1, interpolated)     ;Average of#Deltay [#mum] in each %.1f^{ }#times %.1f mm^{2};Frequency", pitch, pitch);
+        TString dy_title = Form(
+            "#Deltay (1.0 < tan#it{#theta} < 1.1, interpolated)     ;x [mm];y [mm];"
+            "Average of#Deltay [#mum] in each %.1f^{ }#times %.1f mm^{2}",
+            pitch,
+            pitch
+        );
+        TString dy_1D_title = Form(
+            "#Deltay (1.0 < tan#it{#theta} < 1.1, interpolated)     ;"
+            "Average of#Deltay [#mum] in each %.1f^{ }#times %.1f mm^{2};Frequency",
+            pitch,
+            pitch
+        );
         dy_2D = new TH2D("dy_2D", dy_title, bin, LowX * 0.001, UpX * 0.001, bin, LowY * 0.001, UpY * 0.001);
         dy_1D = new TH1D("dy_1D", dy_1D_title, 500, -100, 100);
         TH1D* dy_temp = new TH1D("dy_temp", "dy_temp", 100, -1000, 1000);
@@ -1115,8 +1271,12 @@ void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double b
             for (int iy = 0; iy <= bin; ++iy) {
                 double xcenter = dx_2D->GetXaxis()->GetBinCenter(ix);
                 double ycenter = dx_2D->GetYaxis()->GetBinCenter(iy);
-                TCut area = Form("(%f-x*0.001)^2<%f^2 && (%f-y*0.001)^2<%f^2", xcenter, pitch_half, ycenter, pitch_half);
-
+                TCut area = Form(
+                    "(%f-x*0.001)*(%f-x*0.001)<%f*%f && (%f-y*0.001)*(%f-y*0.001)<%f*%f", 
+                    xcenter, xcenter, pitch_half, pitch_half, 
+                    ycenter, ycenter, pitch_half, pitch_half
+                );
+    
                 subtree->Draw("dx >> dx_temp", area, "goff");
                 subtree->Draw("dy >> dy_temp", area, "goff");
 
@@ -1156,7 +1316,10 @@ void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double b
     dy_2D->Draw("colz1"); // colz1は0のビンを塗りつぶさない
 
     // ヒストグラムとMeanなどの情報を描画するためのラムダ式
-    auto drawHistogramWithLegend = [](TCanvas* canvas, int pad, TH1D* hist, double hist_min, double hist_max, const char* legend_title, double legend_x1, double legend_y1, double legend_x2, double legend_y2) {
+    auto drawHistogramWithLegend = [](
+        TCanvas* canvas, int pad, TH1D* hist, double hist_min, double hist_max,
+        const char* legend_title, double legend_x1, double legend_y1, double legend_x2, double legend_y2
+    ) {
         canvas->cd(pad);
         hist->SetFillStyle(0);
         hist->SetLineWidth(2);
@@ -1199,7 +1362,10 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
         c1->GetPad(pad)->SetBottomMargin(0.08);
     }
     // 非対称なパッドを作成
-    auto createPad = [](const char* name, const char* title, double x1, double y1, double x2, double y2, double rightMargin, double leftMargin) {
+    auto createPad = [](
+        const char* name, const char* title, double x1, double y1, double x2, double y2,
+        double rightMargin, double leftMargin
+    ) {
         TPad* pad = new TPad(name, title, x1, y1, x2, y2);
         pad->SetRightMargin(rightMargin);
         pad->SetLeftMargin(leftMargin);
@@ -1211,11 +1377,15 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
     TPad* pad41 = createPad("pad41", "pad41", 0.51, 0.0, 0.9, 0.5, 0.01, 0.12);
     TPad* pad42 = createPad("pad42", "pad42", 0.9, 0.0, 1.0, 0.5, 0.3, 0.05);
 
-    TH2D* not0_2D = new TH2D("not0_2D", "Number of Micro Tracks per View for Each Imager (Layer0)", 8, -0.5, 7.5, 9, -0.5, 8.5);
-    TH1D* not0_1D = new TH1D("not0_1D", "not0_1D", 2000000, 0.0, 10000000.0);
+    TH2D* not0_2D = new TH2D(
+        "not0_2D", "Number of Micro Tracks per View for Each Imager (Layer0)", 8, -0.5, 7.5, 9, -0.5, 8.5
+    );
+    TH1D* not0_1D = new TH1D("not0_1D", "not0_1D", 4000000, -10000000.0, 10000000.0);
     TGraph* not0_graph = new TGraph();
-    TH2D* not1_2D = new TH2D("not1_2D", "Number of Micro Tracks per View for Each Imager (Layer1)", 8, -0.5, 7.5, 9, -0.5, 8.5);
-    TH1D* not1_1D = new TH1D("not1_1D", "not1_1D", 2000000, 0.0, 10000000.0);
+    TH2D* not1_2D = new TH2D(
+        "not1_2D", "Number of Micro Tracks per View for Each Imager (Layer1)", 8, -0.5, 7.5, 9, -0.5, 8.5
+    );
+    TH1D* not1_1D = new TH1D("not1_1D", "not1_1D", 4000000, -10000000.0, 10000000.0);
     TGraph* not1_graph = new TGraph();
 
     TH2I* sensor_array = new TH2I("sensor_array", "Sensor Array", 8, -0.5, 7.5, 9, -0.5, 8.5);
@@ -1228,20 +1398,24 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
             int sensor_num = ix * 9 + iy;
             auto index = SensorArray::GetIndex(sensor_num);
 
-            // センサー番号表示用
+            // ImagerID表示用の2Dヒストグラムを作成
             sensor_array->SetBinContent(index.x + 1, index.y + 1, sensor_num);
 
-            // 各センサーの平均飛跡本数を取得
+            // 各Imagerの平均飛跡本数を取得
             double not0_value = NoTcount[0][sensor_num] / static_cast<double>(fieldsOfView[0]);
             double not1_value = NoTcount[1][sensor_num] / static_cast<double>(fieldsOfView[1]);
 
-            not0_1D->Fill(not0_value);
-            not1_1D->Fill(not1_value);
-
+            if (not0_value != 0.0) {
+                not0_1D->Fill(not0_value);
+                not0_2D->SetBinContent(index.x + 1, index.y + 1, not0_value);
+            }
             not0_graph->SetPoint(not0_graph->GetN(), sensor_num, not0_value);
-            not0_2D->SetBinContent(index.x + 1, index.y + 1, not0_value);
+
+            if (not1_value != 0.0) {
+                not1_1D->Fill(not1_value);
+                not1_2D->SetBinContent(index.x + 1, index.y + 1, not1_value);
+            }
             not1_graph->SetPoint(not1_graph->GetN(), sensor_num, not1_value);
-            not1_2D->SetBinContent(index.x + 1, index.y + 1, not1_value);
         }
     }
 
@@ -1267,7 +1441,7 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
         hist->GetXaxis()->SetLabelOffset(0.02);
         hist->GetYaxis()->SetLabelOffset(0.02);
         hist->GetZaxis()->SetRangeUser(not_range[0], not_range[1]);
-        hist->Draw("colz text");
+        hist->Draw("colz1 text"); // colz1は0のビンを塗りつぶさない
         sensor_array->Draw("same text");
     };
 
@@ -1305,7 +1479,9 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
     configure1DHistogram(not1_1D, pad42);
 }
 
-void sensor_drdz(TCanvas *c1, const uint32_t NoTcount_same[72], const double dr_sum[72], const double dz_sum[72]) noexcept
+void sensor_drdz(
+    TCanvas *c1, const uint32_t NoTcount_same[72], const double dr_sum[72], const double dz_sum[72]
+) noexcept
 {
     gStyle->SetOptStat("");
     gStyle->SetTitleOffset(1.1, "x");
@@ -1318,7 +1494,10 @@ void sensor_drdz(TCanvas *c1, const uint32_t NoTcount_same[72], const double dr_
         c1->GetPad(pad)->SetBottomMargin(0.08);
     }
     // 非対称なパッドを作成
-    auto createPad = [](const char* name, const char* title, double x1, double y1, double x2, double y2, double rightMargin, double leftMargin) {
+    auto createPad = [](
+        const char* name, const char* title, double x1, double y1, double x2, double y2,
+        double rightMargin, double leftMargin
+    ) {
         TPad* pad = new TPad(name, title, x1, y1, x2, y2);
         pad->SetRightMargin(rightMargin);
         pad->SetLeftMargin(leftMargin);
@@ -1330,11 +1509,19 @@ void sensor_drdz(TCanvas *c1, const uint32_t NoTcount_same[72], const double dr_
     TPad* pad41 = createPad("pad41", "pad41", 0.51, 0.0, 0.9, 0.5, 0.01, 0.12);
     TPad* pad42 = createPad("pad42", "pad42", 0.9, 0.0, 1.0, 0.5, 0.3, 0.05);
 
-    TH2D* dr_2D = new TH2D("dr_2D", "Average of^{ }#sqrt{#Deltax^{2}^{ }#plus #Deltay^{2}} (Same Imager on Both Layers)", 8, -0.5, 7.5, 9, -0.5, 8.5);
-    TH1D* dr_1D = new TH1D("dr_1D", "dr_1D", 10000, 0.0, 10000.0);
+    TH2D* dr_2D = new TH2D(
+        "dr_2D",
+        "Average of^{ }#sqrt{#Deltax^{2}^{ }#plus #Deltay^{2}} (Same Imager on Both Layers)",
+        8, -0.5, 7.5, 9, -0.5, 8.5
+    );
+    TH1D* dr_1D = new TH1D("dr_1D", "dr_1D", 400000, -10000.0, 10000.0);
     TGraph* dr_graph = new TGraph();
-    TH2D* dz_2D = new TH2D("dz_2D", "Average of^{ }#Deltaz (Same Imager on Both Layers)", 8, -0.5, 7.5, 9, -0.5, 8.5);
-    TH1D* dz_1D = new TH1D("dz_1D", "dz_1D", 100000, 0.0, 10000.0);
+    TH2D* dz_2D = new TH2D(
+        "dz_2D",
+        "Average of^{ }#Deltaz (Same Imager on Both Layers)",
+        8, -0.5, 7.5, 9, -0.5, 8.5
+    );
+    TH1D* dz_1D = new TH1D("dz_1D", "dz_1D", 200000, -10000.0, 10000.0);
     TGraph* dz_graph = new TGraph();
 
     // gDirectoryからsensor_arrayを取得。なければ新規作成
@@ -1355,17 +1542,24 @@ void sensor_drdz(TCanvas *c1, const uint32_t NoTcount_same[72], const double dr_
 
             if (!got_sensor_array) sensor_array->SetBinContent(index.x + 1, index.y + 1, sensor_num);
 
-            // 各センサーの平均dr, dzを取得
-            double dr_value = dr_sum[sensor_num] / static_cast<double>(NoTcount_same[sensor_num]);
-            double dz_value = dz_sum[sensor_num] / static_cast<double>(NoTcount_same[sensor_num]);
+            // 各Imagerの平均dr, dzを取得
+            double dr_value = 0.0, dz_value = 0.0;
+            if (NoTcount_same[sensor_num] != 0) { // 0除算を避ける
+                dr_value = dr_sum[sensor_num] / static_cast<double>(NoTcount_same[sensor_num]);
+                dz_value = dz_sum[sensor_num] / static_cast<double>(NoTcount_same[sensor_num]);
+            }
 
-            dr_1D->Fill(dr_value);
-            dz_1D->Fill(dz_value);
-
+            if (dr_value != 0.0) {
+                dr_1D->Fill(dr_value);
+                dr_2D->SetBinContent(index.x + 1, index.y + 1, dr_value);
+            }
             dr_graph->SetPoint(dr_graph->GetN(), sensor_num, dr_value);
-            dr_2D->SetBinContent(index.x + 1, index.y + 1, dr_value);
+
+            if (dz_value != 0.0) {
+                dz_1D->Fill(dz_value);
+                dz_2D->SetBinContent(index.x + 1, index.y + 1, dz_value);
+            }
             dz_graph->SetPoint(dz_graph->GetN(), sensor_num, dz_value);
-            dz_2D->SetBinContent(index.x + 1, index.y + 1, dz_value);
         }
     }
 
@@ -1390,7 +1584,7 @@ void sensor_drdz(TCanvas *c1, const uint32_t NoTcount_same[72], const double dr_
         hist->GetXaxis()->SetLabelOffset(0.02);
         hist->GetYaxis()->SetLabelOffset(0.02);
         hist->GetZaxis()->SetRangeUser(range[0], range[1]);
-        hist->Draw("colz text");
+        hist->Draw("colz1 text"); // colz1は0のビンを塗りつぶさない
         sensor_array->Draw("same text");
     };
 
@@ -1427,38 +1621,3 @@ void sensor_drdz(TCanvas *c1, const uint32_t NoTcount_same[72], const double dr_
     configure1DHistogram(dr_1D, pad32, dr_range);
     configure1DHistogram(dz_1D, pad42, dz_range);
 }
-
-// void position_Imager(TCanvas *c1, TTree *tree, const size_t entries, const double AreaParam[5], const double *TD_range) noexcept
-// {
-//     uint32_t bin = static_cast<uint32_t>(AreaParam[0]);
-//     double LowX = AreaParam[1];
-//     double UpX  = AreaParam[2];
-//     double LowY = AreaParam[3];
-//     double UpY  = AreaParam[4];
-
-//     gStyle->SetOptStat("e");
-//     gStyle->SetStatX(0.85);
-//     gStyle->SetStatY(0.97);
-//     gStyle->SetStatW(0.25);
-//     gStyle->SetStatH(0.17);
-//     gStyle->SetTitleOffset(1.1, "x");
-//     gStyle->SetTitleOffset(1.2, "y");
-//     gStyle->SetTitleOffset(1.2, "z");
-//     c1->SetRightMargin(0.235);
-//     c1->SetLeftMargin(0.23);
-
-//     TProfile2D* position_2D = new TProfile2D(
-//         "position_2D", "Position;x [mm];y [mm];/mm^{2}", bin, LowX*0.001, UpX*0.001, bin, LowY*0.001, UpY*0.001
-//     );
-//     if (TD_range[1] > 0.0) position_2D->GetZaxis()->SetRangeUser(TD_range[0], TD_range[1]);
-//     for (size_t i = 0; i < entries; ++i) {
-//         tree->GetEntry(i);
-//         double x = tree->GetLeaf("x")->GetValue();
-//         double y = tree->GetLeaf("y")->GetValue();
-//         double ImagerID1 = tree->GetLeaf("ImagerID1")->GetValue();
-//         position_2D->Fill(x * 0.001, y * 0.001, ImagerID1);
-//     }
-//     // position_2D->GetZaxis()->SetRangeUser(179.0, 234.0);
-
-//     position_2D->Draw("colz");
-// }
