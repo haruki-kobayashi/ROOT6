@@ -85,7 +85,7 @@ int main(int argc, char* argv[])
                                 outputfile.substr(outputfile.size() - 4) == ".pdf")
                                 ? outputfile
                                 : outputfile + ".pdf";
-    const int pl = -1;
+    int pl = -1;
     const double TD_range[2] = {0.0, 0.0};
     const double angle_max = 6.0;
     const double angle_resolution = 0.1;
@@ -95,11 +95,12 @@ int main(int argc, char* argv[])
     const double dlat_range = 0.05;
     const double drad_range = 1.0;
     const uint32_t vph_range = 100;
-    const uint32_t ranking_range_min = 30;
+    const int32_t ranking_range_min = 30;
     const bool invertpalette = false;
-    const int fontid = 42;
+    const int font_number = 4;
     const bool showGrid = true;
-    const RankingParams rankingGroups[][3] = {
+    int vph_standard = -1;
+    const RankingParams ranking_params_array[][3] = {
         {
             {0.0, 0.1, 120, 0.10, 0.05}, 
             {0.1, 0.2,  70, 0.10, 0.05}, 
@@ -132,6 +133,7 @@ int main(int argc, char* argv[])
         }
     };
 
+    const int font_code = 10 * font_number + 2;
     const TString da_cutX = Form(
         "(%f * (ax < 0 ? -ax : ax) + %f)",
         da_cut_slope, da_cut_intercept
@@ -148,7 +150,7 @@ int main(int argc, char* argv[])
     gErrorIgnoreLevel = kError;
 
     // TTreeの作成
-    std::cout << "\nReading bvxx file... " << std::endl;
+    std::cout << "\nReading bvxx file: ";
     TTree* tree = new TTree("tree", "");
     TTree* subtree = new TTree("subtree", "");
 
@@ -197,7 +199,7 @@ int main(int argc, char* argv[])
     double sensor_dz_sum[72] = {0.0};
 
     StderrSuppressor sup; // 標準エラー出力を抑制するためのオブジェクト
-    bool plDetected = false;
+    bool readSuccess = false;
     if (pl == -1) { // PL番号が指定されていない場合
         // PL番号を0から999まで試す。正しいPL番号が見つかるまでのエラー出力をStderrSuppressorで抑制する
         sup.suppress(); // 標準エラー出力の抑制開始
@@ -205,6 +207,7 @@ int main(int argc, char* argv[])
             if (br.Begin(bvxxfile, pli, 0)) {
                 sup.restore(); // 見つかったら標準エラー出力の抑制を解除
                 std::cout << "PL" << Form("%03d", pli) << " Loading..." << std::endl;
+                pl = pli;
 
                 vxx::HashEntry h;
                 vxx::base_track_t b;
@@ -263,12 +266,12 @@ int main(int argc, char* argv[])
                     }
                 }
                 br.End();
-                plDetected = true;
+                readSuccess = true;
                 break; // 成功したらループを抜ける
             }
         }
-        if (!plDetected) {
-            std::cerr << "Error: Failed to load bvxx file. Try to use -pl option." << std::endl;
+        if (!readSuccess) {
+            std::cerr << "Error: Failed to load bvxx file. Please try using the -pl option." << std::endl;
             return 1;
         }
     } else { // PL番号が指定されている場合
@@ -332,6 +335,9 @@ int main(int argc, char* argv[])
                 }
             }
             br.End();
+        } else {
+            std::cerr << "Error: Failed to load bvxx file. Please check if the correct -pl is specified." << std::endl;
+            return 1;
         }
     } // bvxxファイルの読み込み終了
 
@@ -340,7 +346,7 @@ int main(int argc, char* argv[])
     double elapsed_time = sw.RealTime();
     double cpu_time = sw.CpuTime();
     std::cout << TString::Format(
-        "bvxx file successfully loaded. - Elapsed %.2f [s] (CPU: %.2f [s])", 
+        "Track data successfully loaded. - Elapsed %.2f [s] (CPU: %.2f [s])", 
         elapsed_time, cpu_time
     ) << std::endl;
 
@@ -397,12 +403,12 @@ int main(int argc, char* argv[])
     gStyle->SetPadGridY(showGrid); // グリッドの表示
     gStyle->SetPadTickX(1); // 上側x軸の目盛り表示
     gStyle->SetPadTickY(1); // 右側y軸の目盛り表示
-    gStyle->SetStatFont(fontid);         // 統計box内のフォント
-    gStyle->SetLabelFont(fontid, "xyz"); // 軸ラベルのフォント
-    gStyle->SetTitleFont(fontid, "xyz"); // 軸titleのフォント
-    gStyle->SetTitleFont(fontid, "");    // titleのフォント
-    gStyle->SetTextFont(fontid);         // textのフォント
-    gStyle->SetLegendFont(fontid);       // 凡例のフォント
+    gStyle->SetStatFont(font_code);         // 統計box内のフォント
+    gStyle->SetLabelFont(font_code, "xyz"); // 軸ラベルのフォント
+    gStyle->SetTitleFont(font_code, "xyz"); // 軸titleのフォント
+    gStyle->SetTitleFont(font_code, "");    // titleのフォント
+    gStyle->SetTextFont(font_code);         // textのフォント
+    gStyle->SetLegendFont(font_code);       // 凡例のフォント
 
     // キャンバスとPDFファイルの作成
     gStyle->SetPaperSize(TStyle::kA4);
@@ -411,15 +417,16 @@ int main(int argc, char* argv[])
     global_c1 = c1;
     global_output = output;
 
-    // データの座標の範囲を取得
+    // データの座標の範囲を取得し、表示範囲とビンの数を決定する
+    // フィルムの長辺の端から1cm外側までを最大表示範囲とし、縦横比を正しく保って表示する
+    // 位置分布等のビン幅は1mm。dx, dy, dzのプロットは計算時間短縮のためフィルムサイズによって変える
     const int MinX = tree->GetMinimum("x");
     const int MaxX = tree->GetMaximum("x");
     const int MinY = tree->GetMinimum("y");
     const int MaxY = tree->GetMaximum("y");
-    const int RangeX = MaxX - MinX;
-    const int RangeY = MaxY - MinY;
-    double LowX, UpX, LowY, UpY, bin, bin_dmap;
-    float pitch;
+    const int RangeX = MaxX - MinX; // データ領域
+    const int RangeY = MaxY - MinY; // データ領域
+    double LowX, UpX, LowY, UpY, bin, bin_dxdydz, pitch; // 表示範囲とビンの数とdx, dy, dzのプロットのビン幅
     if (RangeX >= RangeY) {
         pitch = 5.0; // 5.0 mm pitch for dx, dy, dz plot
         LowX = MinX - 10000;
@@ -427,13 +434,13 @@ int main(int argc, char* argv[])
         LowY = MinY - (RangeX - RangeY + 20000) * 0.5;
         UpY = MaxY + (RangeX - RangeY + 20000) * 0.5;
         bin = (RangeX + 20000) * 0.001;
-        bin_dmap = (RangeX + 20000) * 0.0002;
+        bin_dxdydz = (RangeX + 20000) * 0.0002;
         if (RangeX < 100000) {
             pitch = 1.0; // 1.0 mm pitch for dx, dy, dz plot
-            bin_dmap *= 5;
+            bin_dxdydz *= 5;
         } else if (RangeX < 150000) {
             pitch = 2.5; // 2.5 mm pitch for dx, dy, dz plot
-            bin_dmap *= 2;
+            bin_dxdydz *= 2;
         }
     } else {
         pitch = 5.0; // 5.0 mm pitch for dx, dy, dz plot
@@ -442,34 +449,34 @@ int main(int argc, char* argv[])
         LowY = MinY - 10000;
         UpY = MaxY + 10000;
         bin = (RangeY + 20000) * 0.001;
-        bin_dmap = (RangeY + 20000) * 0.0002; // 5.0mm pitch
+        bin_dxdydz = (RangeY + 20000) * 0.0002; // 5.0mm pitch
         if (RangeY < 100000) {
             pitch = 1.0; // 1.0 mm pitch for dx, dy, dz plot
-            bin_dmap *= 5;
+            bin_dxdydz *= 5;
         } else if (RangeY < 150000) {
             pitch = 2.5; // 2.5 mm pitch for dx, dy, dz plot
-            bin_dmap *= 2;
+            bin_dxdydz *= 2;
         }
     }
-    const double AreaParam[5] = {bin, LowX, UpX, LowY, UpY};
+    const double AreaParam[7] = {bin, LowX, UpX, LowY, UpY, bin_dxdydz, pitch};
 
-    position(c1, tree, AreaParam, TD_range);
+    position(c1, tree, pl, AreaParam, TD_range);
     c1->Print(output.c_str()); c1->Clear();
     MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    position_projection(c1, tree, entries, TD_range, AreaParam);
+    position_projection(c1, tree, entries, pl, TD_range, AreaParam);
     c1->Print(output.c_str()); c1->Clear();
-    gDirectory->Delete("position*");
+    gDirectory->Delete("pos*");
     gDirectory->Delete("track_density");
 	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    angle(c1, tree, angle_max, angle_resolution);
+    angle(c1, tree, pl, angle_max, angle_resolution);
     c1->Print(output.c_str()); c1->Clear();
     MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    angle_projection(c1, tree, angle_max, angle_resolution);
+    angle_projection(c1, tree, pl, angle_max, angle_resolution);
     c1->Print(output.c_str()); c1->Clear();
-    gDirectory->Delete("angle*");
+    gDirectory->Delete("ang*");
     MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
     d_angle(c1, tree);
@@ -497,7 +504,7 @@ int main(int argc, char* argv[])
     gDirectory->Delete("*ph*");
     MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    for (uint8_t i = 0; i < 10; ++i) // 0.0-0.1 ~ 0.9-1.0
+    for (int i = 0; i < 10; ++i) // 0.0-0.1 ~ 0.9-1.0
     {
         phvph_1D(c1, tree, vph_range, i, 0.1);
         c1->Print(output.c_str()); c1->Clear();
@@ -505,8 +512,8 @@ int main(int argc, char* argv[])
         MyUtil::ShowProgress(page, static_cast<double>(page) / total);
     }
 
-    const uint8_t phvph_loop = static_cast<uint8_t>((angle_max - 0.1) * 2) + 2;
-    for (uint8_t i = 2; i < phvph_loop; ++i) // 1.0-1.1 ~
+    const int phvph_loop = static_cast<int>((angle_max - 0.1) * 2) + 2;
+    for (int i = 2; i < phvph_loop; ++i) // 1.0-1.1 ~
     {
         phvph_1D(c1, tree, vph_range, i, 0.5);
         c1->Print(output.c_str()); c1->Clear();
@@ -514,65 +521,69 @@ int main(int argc, char* argv[])
         MyUtil::ShowProgress(page, static_cast<double>(page) / total);
     }
 
-    // Set VPH range of track ranking plot
-    uint32_t range = 200;
-    uint32_t range_min = 65;
-    uint32_t range_max = 260;
-    uint32_t vph_entries = 10000;
-    uint32_t vph_mean = 0;
-    uint32_t vph_sigma = 40;
-    uint8_t cut_type = 0;
-    TH1D* vph_temp = new TH1D("vph_temp", "vph_temp", 51, 15, 270);
-    TCut cutvph_temp;
+    // ランキングプロットにおけるy軸(VPH)の描画範囲の基準値vph_standardを決定
+    if (vph_standard < 0) { // vph_standardが指定されていない場合
+        uint32_t range = 200;
+        uint32_t range_min = 65;
+        uint32_t range_max = 260;
+        uint32_t vph_entries = 10000;
+        uint32_t vph_mean = 0;
+        uint32_t vph_sigma = 40;
+        uint8_t cut_type = 0;
+        TH1D* vph_temp = new TH1D("vph_temp", "vph_temp", 51, 15, 270);
+        TCut cutvph_temp;
 
-    do {
-        range_min -= 5;
-        if (range_min < 60) {
-            vph_entries = vph_temp->GetEntries();
-            vph_sigma = vph_temp->GetStdDev();
-            range = vph_sigma * 3;
-            if (vph_entries < 1000) cut_type = 1;
-        }
+        do {
+            range_min -= 5;
+            if (range_min < 60) {
+                vph_entries = vph_temp->GetEntries();
+                vph_sigma = vph_temp->GetStdDev();
+                range = vph_sigma * 3;
+                if (vph_entries < 1000) cut_type = 1;
+            }
 
-        range_max = range_min + range;
+            range_max = range_min + range;
 
-        if (cut_type == 0) {
-            cutvph_temp = Form(
-            "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.03 && lin<0.05", 
-            range_min, range_max
-            );
-        } else {
-            cutvph_temp = Form(
-            "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.08 && lin<0.10", 
-            range_min, range_max
-            );
-        }
-        tree->Draw("(vph1+vph2)>>vph_temp", cutvph_temp, "goff");
-        vph_mean = vph_temp->GetMean();
-        if (range_min < 15) break;
-    } while (vph_mean < range_min + 0.5 * vph_sigma);
+            if (cut_type == 0) {
+                cutvph_temp = Form(
+                "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.03 && lin<0.05"
+                "&& dax1<0.02 && dax2<0.02 && day1<0.02 && day2<0.02", 
+                range_min, range_max
+                );
+            } else {
+                cutvph_temp = Form(
+                "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.08 && lin<0.10"
+                "&& dax1<0.02 && dax2<0.02 && day1<0.02 && day2<0.02", 
+                range_min, range_max
+                );
+            }
+            tree->Draw("(vph1+vph2)>>vph_temp", cutvph_temp, "goff");
+            vph_mean = vph_temp->GetMean();
+            if (range_min < 15) break;
+        } while (vph_mean < range_min + 0.5 * vph_sigma);
 
-    TF1* gaus = new TF1("gaus", "gaus", -10000, 10000);
-    vph_temp->Fit("gaus", "q 0", "", range_min, vph_mean + vph_sigma);
-    uint32_t vph_standard = gaus->GetParameter(1) + 5;
-    if (vph_standard < ranking_range_min) vph_standard = ranking_range_min;
-    gDirectory->Delete("*_temp");
-    delete gaus;
+        TF1* gaus = new TF1("gaus", "gaus", 0.0, 1000.0);
+        vph_temp->Fit("gaus", "q 0", "", range_min, vph_mean + vph_sigma);
+        vph_standard = gaus->GetParameter(1) + 5;
+        if (vph_standard < ranking_range_min) vph_standard = ranking_range_min;
+        gDirectory->Delete("vph_temp");
+        delete gaus;
+    }
 
-    for (const auto& params : rankingGroups) {
+    for (const auto& params : ranking_params_array) {
         ranking(c1, tree, params, vph_standard);
         c1->Print(output.c_str()); c1->Clear();
         gDirectory->Delete("rank*");
         MyUtil::ShowProgress(page, static_cast<double>(page) / total);
     }
 
-    dxdydz(c1, subtree, AreaParam, bin_dmap, pitch);
+    dxdydz(c1, subtree, AreaParam);
     c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("*_temp");
     gDirectory->Delete("dz*");
     MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    dxdy(c1, subtree, AreaParam, bin_dmap, pitch);
+    dxdy(c1, subtree, AreaParam);
     c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("d*");
 	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
@@ -617,7 +628,7 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-void position(TCanvas *c1, TTree *tree, const double AreaParam[5], const double *TD_range) noexcept
+void position(TCanvas *c1, TTree *tree, int pl, const double *AreaParam, const double *TD_range) noexcept
 {
     uint32_t bin = static_cast<uint32_t>(AreaParam[0]);
     double LowX = AreaParam[1];
@@ -625,26 +636,32 @@ void position(TCanvas *c1, TTree *tree, const double AreaParam[5], const double 
     double LowY = AreaParam[3];
     double UpY  = AreaParam[4];
 
-    gStyle->SetOptStat("e");
-    gStyle->SetStatX(0.85);
-    gStyle->SetStatY(0.97);
-    gStyle->SetStatW(0.25);
-    gStyle->SetStatH(0.17);
+    gStyle->SetOptStat("");
     gStyle->SetTitleOffset(1.1, "x");
     gStyle->SetTitleOffset(1.2, "y");
-    gStyle->SetTitleOffset(1.2, "z");
+    gStyle->SetTitleOffset(1.6, "z");
     c1->SetRightMargin(0.235);
     c1->SetLeftMargin(0.23);
 
     TH2D* position_2D = new TH2D(
-        "position_2D", "Position;x [mm];y [mm];/mm^{2}", bin, LowX*0.001, UpX*0.001, bin, LowY*0.001, UpY*0.001
+        "position_2D", Form("Position PL%03d;x [mm];y [mm];/mm^{2}", pl),
+        bin, LowX*0.001, UpX*0.001, bin, LowY*0.001, UpY*0.001
     );
     if (TD_range[1] > 0.0) position_2D->GetZaxis()->SetRangeUser(TD_range[0], TD_range[1]);
     tree->Draw("y*0.001:x*0.001 >> position_2D", "", "colz");
+
+	TLegend* pos_lg = new TLegend(0.6, 0.9, 0.75, 1.0);
+    pos_lg->SetName("pos_lg");
+    gDirectory->Add(pos_lg);
+	pos_lg->SetFillStyle(0);
+	pos_lg->SetBorderSize(0);
+	pos_lg->SetTextSize(0.04);
+	pos_lg->AddEntry(position_2D, Form("Entries %.0f", position_2D->GetEntries()), "");
+	pos_lg->Draw();
 }
 
 void position_projection(
-    TCanvas *c1, TTree *tree, const size_t entries, const double *TD_range, const double AreaParam[5]
+    TCanvas *c1, TTree *tree, const size_t entries, int pl, const double *TD_range, const double *AreaParam
 ) noexcept
 {
     gStyle->SetOptStat("");
@@ -655,9 +672,10 @@ void position_projection(
         c1->GetPad(pad)->SetLeftMargin((pad % 2 == 0) ? 0.165 : 0.23);
     }
 
-    // gDirectoryからposition_2Dを取得。なければ新規作成
+    // gDirectoryからposition_2D, pos_lgを取得。なければ新規作成
     TH2D* position_2D = (TH2D*)gDirectory->Get("position_2D");
-    if (!position_2D) {
+    TLegend* pos_lg = (TLegend*)gDirectory->Get("pos_lg");
+    if (!position_2D || !pos_lg) {
         uint32_t bin = static_cast<uint32_t>(AreaParam[0]);
         double LowX = AreaParam[1];
         double UpX  = AreaParam[2];
@@ -665,19 +683,27 @@ void position_projection(
         double UpY  = AreaParam[4];
 
         position_2D = new TH2D(
-            "position_2D", "Position;x [mm];y [mm];/mm^{2}", bin, LowX*0.001, UpX*0.001, bin, LowY*0.001, UpY*0.001
+            "position_2D", Form("Position PL%03d;x [mm];y [mm];/mm^{2}", pl),
+            bin, LowX*0.001, UpX*0.001, bin, LowY*0.001, UpY*0.001
         );
         if (TD_range[1] > 0.0) position_2D->GetZaxis()->SetRangeUser(TD_range[0], TD_range[1]);
         tree->Draw("y*0.001:x*0.001 >> position_2D", "", "goff");
+
+        pos_lg = new TLegend(0.6, 0.9, 0.75, 1.0);
+        pos_lg->SetFillStyle(0);
+        pos_lg->SetBorderSize(0);
+        pos_lg->SetTextSize(0.04);
+        pos_lg->AddEntry(position_2D, Form("Entries %.0f", position_2D->GetEntries()), "");
     }
 
     c1->cd(1);
     position_2D->Draw("colz");
+    pos_lg->Draw();
 
     for (int pad = 2; pad <= 3; ++pad) {
         c1->cd(pad);
         position_2D->SetFillColor((pad == 2) ? 91 : 90);
-        auto proj = (pad == 2) ? position_2D->ProjectionY() : position_2D->ProjectionX();
+        TH1D* proj = (pad == 2) ? position_2D->ProjectionY() : position_2D->ProjectionX();
         proj->Draw((pad == 2) ? "hbar" : "bar");
         proj->SetTitle("");
     }
@@ -687,13 +713,13 @@ void position_projection(
     TH1D* track_density = new TH1D(
         "track_density", ";Track Density [/mm^{2}];Frequency", 10000, 0, 100000
     );
-    int Xbins = ((TH2D*)position_2D)->GetNbinsX();
-    int Ybins = ((TH2D*)position_2D)->GetNbinsY();
+    int Xbins = position_2D->GetNbinsX();
+    int Ybins = position_2D->GetNbinsY();
     double min_density = 0.0;
     double max_density = 0.0;
     for (int xBin = 0; xBin < Xbins; ++xBin) {
         for (int yBin = 0; yBin < Ybins; ++yBin) {
-            double density = ((TH2D*)position_2D)->GetBinContent(xBin + 1, yBin + 1);
+            double density = position_2D->GetBinContent(xBin + 1, yBin + 1);
             if (density > 0.0) track_density->Fill(density);
             if (max_density < density) max_density = density;
         }
@@ -706,20 +732,12 @@ void position_projection(
     track_density->SetFillStyle(0);
     track_density->SetLineWidth(2);
     track_density->Draw();
-    // 各ビンをカラーパレットの色で塗る
-    int td_min = track_density->FindFixBin(min_density);
-    int td_max = track_density->FindFixBin(max_density);
-    for (int i = td_min; i <= td_max; ++i) {
-        if (track_density->GetBinContent(i) == 0) continue;
-        int ci = gStyle->GetColorPalette(256 * (track_density->GetBin(i) - td_min) / (td_max - td_min));
-        MyUtil::PaintBin(track_density, i, ci);
-    }
+    MyUtil::PaintBins(track_density, min_density, max_density); // 各ビンをカラーパレットの色で塗る
 
 	int density_entries = track_density->GetEntries();
     double density_mean = track_density->GetMean();
     double density_stddev = track_density->GetStdDev();
     TLegend* density_lg = new TLegend(0.67, 0.7, 0.9, 0.9);
-    density_lg->SetName("density_lg");
     density_lg->SetFillStyle(0);
     density_lg->SetBorderSize(0);
     density_lg->SetTextSize(0.04);
@@ -730,14 +748,9 @@ void position_projection(
     density_lg->Draw();
 }
 
-void angle(TCanvas *c1, TTree *tree, const double angle_max, const double angle_resolution) noexcept
+void angle(TCanvas *c1, TTree *tree, int pl, const double angle_max, const double angle_resolution) noexcept
 {
-    gStyle->SetTitleOffset(1.0, "y");
-    gStyle->SetOptStat("e");
-    gStyle->SetStatX(0.85);
-    gStyle->SetStatY(0.97);
-    gStyle->SetStatW(0.25);
-    gStyle->SetStatH(0.17);
+    gStyle->SetOptStat("");
     gStyle->SetTitleOffset(1.1, "x");
     gStyle->SetTitleOffset(0.9, "y");
     gStyle->SetTitleOffset(1.6, "z");
@@ -746,14 +759,25 @@ void angle(TCanvas *c1, TTree *tree, const double angle_max, const double angle_
 
     uint32_t angle_bin = 2 / angle_resolution * angle_max;
 
-    TString angtitle = Form("Angle;tan#it{#theta}_{x};tan#it{#theta}_{y};/(%g rad)^{2}", angle_resolution);
+    TString angtitle = Form(
+        "Angle PL%03d;tan#it{#theta}_{x};tan#it{#theta}_{y};/(%g rad)^{2}", pl, angle_resolution
+    );
     TH2D* angle_2D = new TH2D(
         "angle_2D", angtitle, angle_bin, -angle_max, angle_max, angle_bin, -angle_max, angle_max
     );
     tree->Draw("ay:ax >> angle_2D", "", "colz");
+
+	TLegend* ang_lg = new TLegend(0.6, 0.9, 0.75, 1.0);
+    ang_lg->SetName("ang_lg");
+    gDirectory->Add(ang_lg);
+	ang_lg->SetFillStyle(0);
+	ang_lg->SetBorderSize(0);
+	ang_lg->SetTextSize(0.04);
+	ang_lg->AddEntry(angle_2D, Form("Entries %.0f", angle_2D->GetEntries()), "");
+	ang_lg->Draw();
 }
 
-void angle_projection(TCanvas *c1, TTree *tree, const double angle_max, const double angle_resolution) noexcept
+void angle_projection(TCanvas *c1, TTree *tree, int pl, const double angle_max, const double angle_resolution) noexcept
 {
     c1->Divide(2, 2);
     for (int pad = 1; pad <= 4; ++pad) {
@@ -761,36 +785,41 @@ void angle_projection(TCanvas *c1, TTree *tree, const double angle_max, const do
         c1->GetPad(pad)->SetLeftMargin((pad % 2 == 0) ? 0.165 : 0.23);
     }
 
-    // gDirectoryからangle_2Dを取得。なければ新規作成
+    // gDirectoryからangle_2D, ang_lgを取得。なければ新規作成
 	TH2D* angle_2D = (TH2D*)gDirectory->Get("angle_2D");
-    if (!angle_2D) {
+    TLegend* ang_lg = (TLegend*)gDirectory->Get("ang_lg");
+    if (!angle_2D || !ang_lg) {
         uint32_t angle_bin = 2 / angle_resolution * angle_max;
 
-        TString angtitle = Form("Angle;tan#it{#theta}_{x};tan#it{#theta}_{y};/(%g rad)^{2}", angle_resolution);
+        TString angtitle = Form(
+            "Angle PL%03d;tan#it{#theta}_{x};tan#it{#theta}_{y};/(%g rad)^{2}", pl, angle_resolution
+        );
         TH2D* angle_2D = new TH2D(
             "angle_2D", angtitle, angle_bin, -angle_max, angle_max, angle_bin, -angle_max, angle_max
         );
         tree->Draw("ay:ax >> angle_2D", "", "goff");
+
+        ang_lg = new TLegend(0.6, 0.9, 0.75, 1.0);
+        ang_lg->SetFillStyle(0);
+        ang_lg->SetBorderSize(0);
+        ang_lg->SetTextSize(0.04);
+        ang_lg->AddEntry(angle_2D, Form("Entries %.0f", angle_2D->GetEntries()), "");
     }
 
     c1->cd(1);
     angle_2D->Draw("colz");
+	ang_lg->Draw();
 
     for (int pad = 2; pad <= 3; ++pad) {
         c1->cd(pad);
         angle_2D->SetFillColor((pad == 2) ? 91 : 90);
-        auto proj = (pad == 2) ? angle_2D->ProjectionY() : angle_2D->ProjectionX();
+        TH1D* proj = (pad == 2) ? angle_2D->ProjectionY() : angle_2D->ProjectionX();
         proj->Draw((pad == 2) ? "hbar" : "bar");
         proj->SetTitle("");
     }
 
     c1->cd(4);
-    gStyle->SetOptStat("e");
-    gStyle->SetStatFormat("8.6f");
-    gStyle->SetStatX(0.7);
-    gStyle->SetStatY(0.97);
-    gStyle->SetStatW(0.25);
-    gStyle->SetStatH(0.17);
+    gStyle->SetOptStat("");
 	gStyle->SetTitleOffset(1.3, "x");
 	gStyle->SetTitleOffset(1.5, "y");
 
@@ -800,6 +829,12 @@ void angle_projection(TCanvas *c1, TTree *tree, const double angle_max, const do
 	TH1D* angle_1D = new TH1D("angle_1D", ang1Dtitle, angle_bin, 0.0, angle_max);
     angle_1D->SetFillColorAlpha(92, 0.7);
 	tree->Draw("tan>>angle_1D");
+	TLegend* ang_lg2 = new TLegend(0.45, 0.9, 0.6, 1.0);
+	ang_lg2->SetFillStyle(0);
+	ang_lg2->SetBorderSize(0);
+	ang_lg2->SetTextSize(0.04);
+	ang_lg2->AddEntry(angle_1D, Form("Entries %.0f", angle_1D->GetEntries()), "");
+	ang_lg2->Draw();
 }
 
 void d_angle(TCanvas *c1, TTree *tree) noexcept
@@ -936,6 +971,7 @@ void d_angle_rl(
 
     TString suffix = (face == 1) ? "1" : "2";
 
+    // ヒストグラムを作成して描画するためのラムダ式
     auto createAndDrawHistogram = [&](
         int pad, const char* name, const char* title, const char* drawExpr, double xMax, double yMin, double yMax
     ) {
@@ -996,6 +1032,7 @@ void phvph_2D(
 
     uint32_t phvph_bin = static_cast<uint32_t>(angle_max / angle_resolution);
 
+    // ヒストグラムを作成して描画するためのラムダ式
     auto createAndDraw2DHistogram = [&](
         int pad, const char* name, const char* title, const char* drawExpr,
         int yBins, double yMin, double yMax, int NDiv
@@ -1076,10 +1113,10 @@ void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_
 {
     gStyle->SetOptStat("e");
     gStyle->SetStatFormat("6.2f");
-    gStyle->SetStatY(0.16);
+    gStyle->SetStatY(0.15);
     gStyle->SetStatX(0.85);
     gStyle->SetStatW(0.3);
-    gStyle->SetStatH(0.2);
+    gStyle->SetStatH(0.15);
     gStyle->SetTitleOffset(1.4, "x");
     gStyle->SetTitleOffset(1.5, "y");
 
@@ -1088,7 +1125,10 @@ void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_
         c1->GetPad(pad)->SetRightMargin(0.15);
     }
 
+    // 角度範囲が同じ2つのランキングプロットを描画するためのラムダ式
     auto createAndDrawRank = [&](int pad, const RankingParams& param) {
+        if (param.tan_low >= param.tan_up) return;
+
         TCut range = Form("tan>=%.1f&&tan<%.1f", param.tan_low, param.tan_up);
 
         // x, y
@@ -1102,14 +1142,14 @@ void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_
             param.tan_up
         );
         TH2D* rank = new TH2D(
-            "rank", 
-            rank_title, 
-            50, 
-            0.0, 
-            param.xy_lin_max, 
-            vph_standard + param.vph_max_plus, 
-            0, 
-            vph_standard + param.vph_max_plus
+            "rank",
+            rank_title,
+            50,
+            0.0,
+            param.xy_lin_max,
+            static_cast<int>(vph_standard + param.vph_max_plus),
+            0.0,
+            static_cast<double>(vph_standard + param.vph_max_plus)
         );
         tree->Draw("(vph1+vph2):lin >> rank", range, "colz");
 
@@ -1127,9 +1167,9 @@ void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_
             50,
             0.0,
             param.lat_lin_max,
-            vph_standard + param.vph_max_plus,
-            0,
-            vph_standard + param.vph_max_plus
+            static_cast<int>(vph_standard + param.vph_max_plus),
+            0.0,
+            static_cast<double>(vph_standard + param.vph_max_plus)
         );
         rankl->GetXaxis()->SetNdivisions(505);
         tree->Draw("(vph1+vph2):linl >> rankl", range, "colz");
@@ -1140,13 +1180,15 @@ void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_
     }
 }
 
-void dxdydz(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double bin_dmap, const float pitch) noexcept
+void dxdydz(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept
 {
-    int bin = static_cast<int>(bin_dmap);
+    int bin = static_cast<int>(AreaParam[5]);
     double LowX = AreaParam[1];
     double UpX  = AreaParam[2];
     double LowY = AreaParam[3];
     double UpY  = AreaParam[4];
+    double pitch = AreaParam[6];
+    double pitch_half = pitch * 0.5;
 
     gStyle->SetOptStat("");
     gStyle->SetStatFormat(".4g");
@@ -1204,8 +1246,6 @@ void dxdydz(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double
     TH1D* dy_1D = new TH1D("dy_1D", dy_1D_title, 500, -100, 100);
     TH1D* dy_temp = new TH1D("dy_temp", "dy_temp", 100, -1000, 1000);
 
-    float pitch_half = pitch * 0.5;
-
     for (int ix = 0; ix <= bin; ++ix) {
         for (int iy = 0; iy <= bin; ++iy) {
             // 各ビンの領域を取得
@@ -1218,9 +1258,9 @@ void dxdydz(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double
             );
 
             // 各ビンの領域に対してdz, dx, dyのヒストグラムを作成
-            subtree->Draw("dz >> dz_temp", area, "goff");
-            subtree->Draw("dx >> dx_temp", area, "goff");
-            subtree->Draw("dy >> dy_temp", area, "goff");
+            tree->Draw("dz >> dz_temp", area, "goff");
+            tree->Draw("dx >> dx_temp", area, "goff");
+            tree->Draw("dy >> dy_temp", area, "goff");
 
             if (dz_temp->GetEntries() == 0) continue;
 
@@ -1267,14 +1307,7 @@ void dxdydz(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double
     dz_1D->SetFillStyle(0);
     dz_1D->SetLineWidth(2);
     dz_1D->Draw();
-    // 各ビンをカラーパレットの色で塗る
-    int dz_1D_min = dz_1D->FindFixBin(dz_1D_mean - dz_5sigma);
-    int dz_1D_max = dz_1D->FindFixBin(dz_1D_mean + dz_5sigma);
-    for (int i = dz_1D_min; i <= dz_1D_max; ++i) {
-        if (dz_1D->GetBinContent(i) == 0) continue;
-        int ci = gStyle->GetColorPalette(256 * (dz_1D->GetBin(i) - dz_1D_min) / (dz_1D_max - dz_1D_min));
-        MyUtil::PaintBin(dz_1D, i, ci);
-    }
+    MyUtil::PaintBins(dz_1D, dz_1D_mean - dz_5sigma, dz_1D_mean + dz_5sigma); // 各ビンをカラーパレットの色で塗る
 
     TLegend* dz_lg = new TLegend(0.68, 0.7, 0.9, 0.9);
     dz_lg->SetFillStyle(0);
@@ -1292,7 +1325,7 @@ void dxdydz(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double
     dy_2D->Draw("colz1"); // colz1は0のビンを塗りつぶさない
 }
 
-void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double bin_dmap, const float pitch) noexcept
+void dxdy(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept
 {
     gStyle->SetOptStat("");
     gStyle->SetStatFormat(".4g");
@@ -1306,11 +1339,13 @@ void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double b
     TH2D* dy_2D = (TH2D*)gDirectory->Get("dy_2D");
     TH1D* dy_1D = (TH1D*)gDirectory->Get("dy_1D");
     if (!dx_2D || !dx_1D || !dy_2D || !dy_1D) {
-        int bin = static_cast<int>(bin_dmap);
+        int bin = static_cast<int>(AreaParam[5]);
         double LowX = AreaParam[1];
         double UpX  = AreaParam[2];
         double LowY = AreaParam[3];
         double UpY  = AreaParam[4];
+        double pitch = AreaParam[6];
+        double pitch_half = pitch * 0.5;
 
         TString dx_title = Form(
             "#Deltax (1.0 < tan#it{#theta} < 1.1, interpolated);x [mm];y [mm];"
@@ -1344,8 +1379,6 @@ void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double b
         dy_1D = new TH1D("dy_1D", dy_1D_title, 500, -100, 100);
         TH1D* dy_temp = new TH1D("dy_temp", "dy_temp", 100, -1000, 1000);
 
-        float pitch_half = pitch * 0.5;
-
         for (int ix = 0; ix <= bin; ++ix) {
             for (int iy = 0; iy <= bin; ++iy) {
                 double xcenter = dx_2D->GetXaxis()->GetBinCenter(ix);
@@ -1356,8 +1389,8 @@ void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double b
                     ycenter, ycenter, pitch_half, pitch_half
                 );
     
-                subtree->Draw("dx >> dx_temp", area, "goff");
-                subtree->Draw("dy >> dy_temp", area, "goff");
+                tree->Draw("dx >> dx_temp", area, "goff");
+                tree->Draw("dy >> dy_temp", area, "goff");
 
                 if (dx_temp->GetEntries() == 0) continue;
 
@@ -1372,6 +1405,7 @@ void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double b
         }
         gDirectory->Delete("d*_temp");
 
+        // ヒストグラムの範囲設定用のラムダ式
         auto setRange = [](TH1D* hist, TH2D* hist2D, double mean, double range) {
             hist->GetXaxis()->SetRangeUser(mean - range, mean + range);
             hist2D->GetZaxis()->SetRangeUser(mean - range, mean + range);
@@ -1440,7 +1474,7 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
         c1->GetPad(pad)->SetTopMargin(0.12);
         c1->GetPad(pad)->SetBottomMargin(0.08);
     }
-    // 非対称なパッドを作成
+    // 非対称なパッドを作成するためのラムダ式
     auto createPad = [](
         const char* name, const char* title, double x1, double y1, double x2, double y2,
         double rightMargin, double leftMargin
@@ -1506,7 +1540,7 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
     double not1_range[2] = {not1_mean - not1_5sigma, not1_mean + not1_5sigma};
     double not_range[2] = {std::min(not0_range[0], not1_range[0]), std::max(not0_range[1], not1_range[1])};
 
-    // 2Dヒストグラムを作成するためのラムダ式
+    // 2Dヒストグラムを作成して描画するためのラムダ式
     auto configure2DHistogram = [&](TH2D* hist, int pad) {
         c1->cd(pad);
         gPad->SetGrid(0, 0);
@@ -1524,7 +1558,7 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
         sensor_array->Draw("same text");
     };
 
-    // グラフを作成するためのラムダ式
+    // グラフを作成して描画するためのラムダ式
     auto configureGraph = [&](TGraph* graph, TPad* pad, const char* title) {
         pad->cd();
         graph->GetYaxis()->SetTitleOffset(1.9);
@@ -1539,7 +1573,7 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
         graph->Draw("a p l");
     };
 
-    // 1Dヒストグラムを作成するためのラムダ式
+    // 1Dヒストグラムを作成して描画するためのラムダ式
     auto configure1DHistogram = [&](TH1D* hist, TPad* pad) {
         pad->cd();
         hist->GetXaxis()->SetRangeUser(not_range[0], not_range[1]);
@@ -1572,7 +1606,7 @@ void sensor_drdz(
         c1->GetPad(pad)->SetTopMargin(0.12);
         c1->GetPad(pad)->SetBottomMargin(0.08);
     }
-    // 非対称なパッドを作成
+    // 非対称なパッドを作成するためのラムダ式
     auto createPad = [](
         const char* name, const char* title, double x1, double y1, double x2, double y2,
         double rightMargin, double leftMargin
@@ -1649,7 +1683,7 @@ void sensor_drdz(
     double dz_5sigma = 5 * dz_1D->GetStdDev();
     double dz_range[2] = {dz_mean - dz_5sigma, dz_mean + dz_5sigma};
 
-    // 2Dヒストグラムを作成するためのラムダ式
+    // 2Dヒストグラムを作成して描画するためのラムダ式
     auto configure2DHistogram = [&](TH2D* hist, int pad, const double range[2]) {
         c1->cd(pad);
         gPad->SetGrid(0, 0);
@@ -1667,7 +1701,7 @@ void sensor_drdz(
         sensor_array->Draw("same text");
     };
 
-    // グラフを作成するためのラムダ式
+    // グラフを作成して描画するためのラムダ式
     auto configureGraph = [&](TGraph* graph, TPad* pad, const char* title, const double offset, const double range[2]) {
         pad->cd();
         graph->GetYaxis()->SetTitleOffset(offset);
@@ -1682,7 +1716,7 @@ void sensor_drdz(
         graph->Draw("a p l");
     };
 
-    // 1Dヒストグラムを作成するためのラムダ式
+    // 1Dヒストグラムを作成して描画するためのラムダ式
     auto configure1DHistogram = [&](TH1D* hist, TPad* pad, const double range[2]) {
         pad->cd();
         hist->GetXaxis()->SetRangeUser(range[0], range[1]);

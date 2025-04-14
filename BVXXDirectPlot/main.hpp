@@ -11,15 +11,15 @@ struct RankingParams {
     double lat_lin_max;
 };
 
-void position(TCanvas *c1, TTree *tree, const double AreaParam[5], const double *TDRange) noexcept;
+void position(TCanvas *c1, TTree *tree, int pl, const double *AreaParam, const double *TDRange) noexcept;
 
 void position_projection(
-    TCanvas *c1, TTree *tree, const size_t entries, const double *TDRange, const double AreaParam[5]
+    TCanvas *c1, TTree *tree, const size_t entries, int pl, const double *TDRange, const double *AreaParam
 ) noexcept;
 
-void angle(TCanvas *c1, TTree *tree, const double angle_max, const double angle_resolution) noexcept;
+void angle(TCanvas *c1, TTree *tree, int pl, const double angle_max, const double angle_resolution) noexcept;
 
-void angle_projection(TCanvas *c1, TTree *tree, const double angle_max, const double angle_resolution) noexcept;
+void angle_projection(TCanvas *c1, TTree *tree, int pl, const double angle_max, const double angle_resolution) noexcept;
 
 void d_angle(TCanvas *c1, TTree *tree) noexcept;
 
@@ -39,9 +39,9 @@ void phvph_1D(TCanvas *c1, TTree *tree, const uint32_t vph_range, const uint8_t 
 
 void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_t vph_standard) noexcept;
 
-void dxdydz(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double bin_dmap, const float pitch) noexcept;
+void dxdydz(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept;
 
-void dxdy(TCanvas *c1, TTree *subtree, const double AreaParam[5], const double bin_dmap, const float pitch) noexcept;
+void dxdy(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept;
 
 void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[2][72]) noexcept;
 

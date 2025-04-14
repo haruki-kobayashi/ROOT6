@@ -5,6 +5,7 @@
 #include <sstream>
 #include <TH1.h>
 #include <TBox.h>
+#include <TStyle.h>
 
 namespace MyUtil {
 
@@ -17,6 +18,22 @@ namespace MyUtil {
         );
         b->SetFillColorAlpha(color, alpha);
         b->Draw();
+    }
+
+    void PaintBins(TH1* h, double h_range_min, double h_range_max, float alpha) noexcept {
+        int min = h->FindFixBin(h_range_min);
+        int max = h->FindFixBin(h_range_max);
+
+        for (int i = min; i <= max; ++i) {
+            if (h->GetBinContent(i) == 0) continue;
+    
+            int ci = gStyle->GetColorPalette(
+                256 * (h->GetBinCenter(i) - h->GetBinLowEdge(min)) / 
+                (h->GetBinLowEdge(max + 1) - h->GetBinLowEdge(min))
+            );
+
+            PaintBin(h, i, ci, alpha);
+        }
     }
 
     void ShowProgress(int &page, double progress) noexcept
