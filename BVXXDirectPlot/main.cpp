@@ -1,3 +1,7 @@
+// libCling.lib をリンクすると argparse と干渉するっぽいが、他のROOTのlibを一つずつ
+// リンクするのは面倒なので、 libCling.lib 以外をコピーしたフォルダ (lib_NoCling) を作り
+// 「構成プロパティ」→「リンカー」→「入力」→「追加の依存ファイル」に lib_NoCling\*lib; を追加した
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -7,14 +11,8 @@
 #include <array>
 #include <csignal>
 
-#include <VxxReader.h>
-#include <KeywordArgs.h>
-#include <Template.h>
-#include <netscan_data_types_ui.h>
-
 #include <TROOT.h>
 #include <TFile.h>
-#include <TList.h>
 #include <TTree.h>
 #include <TCanvas.h>
 #include <TStyle.h>
@@ -27,7 +25,12 @@
 #include <TCut.h>
 #include <TLegend.h>
 #include <TColor.h>
-#include <TLeaf.h>
+
+#include <VxxReader/VxxReader.h>
+#include <VxxReader/KeywordArgs.h>
+#include <VxxReader/Template.h>
+#include <VxxReader/netscan_data_types_ui.h>
+#include <argparse/argparse.hpp>
 
 #include <ROOT6/MyUtil.hpp>
 #include <ROOT6/MyPalette.hpp>
@@ -60,46 +63,150 @@ int main(int argc, char* argv[])
     // Ctrl+Cで終了したときの処理
     std::signal(SIGINT, handleSIGINT);
 
-    // 引数の数を確認
-    if (argc < 2) {
-        std::cerr << "\n Usage: " << argv[0] << " bvxx_file [opsion]\n" << std::endl;
+    // argparseを使用して引数を解析
+    argparse::ArgumentParser program("BvxxDirectPlot.exe", "1.0.0");
+    // argparse::ArgumentParser program("BvxxDirectPlot.exe", "1.0.0", argparse::default_arguments::none);
+    program.set_usage_max_line_width(80);
+
+    // program.add_argument("-h", "--help")
+    //     .action([&](const std::string& s) {
+    //         std::cout << program.help().str();
+    //         std::exit(1);
+    //     })
+    //     .default_value(false)
+    //     .help("shows help message and exits")
+    //     .implicit_value(true)
+    //     .nargs(0);
+    // 必須引数: bvxxファイル
+    std::string bvxxfile = "";
+    program.add_argument("input_bvxx")
+        .help("Path to the bvxx file to be processed.")
+        .store_into(bvxxfile);
+    // オプション引数: 出力ファイル
+    std::string outputfile = "";
+    program.add_argument("-o", "--output")
+        .help("Output PDF file name. [default: input_bvxx.pdf]")
+        .store_into(outputfile);
+    // オプション引数: PL番号
+    int pl = -1;
+    program.add_argument("-pl", "--pl-number")
+        .help("Plate number to be used. [default: auto]")
+        .store_into(pl);
+    // オプション引数: その他の設定
+    program.add_argument("-g", "--hide-grid")
+        .help("Hide grid. [default: show]")
+        .flag();
+    program.add_argument("-f", "--font-number")
+        .help("Font number (default: Helvetica).\n"
+            "4, 13, 6, or 2 are recommended.\n"
+            "Refer to https://root.cern.ch/doc/master/classTAttText.html\n"
+            "for details.")
+        .default_value(4)
+        .scan<'i', int>();
+    program.add_argument("-p", "--palette")
+        .help("Color palette to use.\n"
+            "All ROOT palettes (https://root.cern.ch/doc/v632/classTColor.html)\n"
+            "and the following custom palettes are available:\n"
+            " - kBirdDark, kRedWhiteBlue, kRedBlackBlue,\n"
+            " - kMagentaWhiteGreen, kMagentaBlackGreen,\n"
+            " - kLegacy (ROOT5's default).")
+        .default_value(std::string("kBird"));
+    program.add_argument("-ip", "--invert-palette")
+        .help("Invert color palette.")
+        .flag();
+    program.add_argument("--track-density-range")
+        .help("Track density (/mm2) range for plotting. [default: auto]\n"
+            "First = minimum, Second = maximum.")
+        .default_value(std::vector<double>({0.0, 0.0}))
+        .nargs(2)
+        .scan<'g', double>();
+    program.add_argument("--angle-max")
+        .help("Maximum angle (tanθ) for plotting.")
+        .default_value(6.0)
+        .scan<'g', double>();
+    program.add_argument("--angle-resolution")
+        .help("Resolution of angle hists (tanθ).")
+        .default_value(0.1)
+        .scan<'g', double>();
+    program.add_argument("--da-cut-slope")
+        .help("Slope for d-angle noise cut.")
+        .default_value(0.08)
+        .scan<'g', double>();
+    program.add_argument("--da-cut-intercept")
+        .help("Intercept for d-angle noise cut.")
+        .default_value(0.02)
+        .scan<'g', double>();
+    program.add_argument("--da-cut-ph")
+        .help("d-angle noise cut PH threshold (keep PH >= VAR).")
+        .default_value(9)
+        .scan<'d', int>();
+    program.add_argument("--dlat-range")
+        .help("delta lateral range.")
+        .default_value(0.05)
+        .scan<'g', double>();
+    program.add_argument("--drad-range")
+        .help("delta radial range.")
+        .default_value(1.0)
+        .scan<'g', double>();
+    program.add_argument("--vph-range")
+        .help("VPH hists plot range for one face.")
+        .default_value(100)
+        .scan<'i', int>();
+    program.add_argument("--ranking-vph-min")
+        .help("Minimum y-axis range for ranking plots.")
+        .default_value(30)
+        .scan<'i', int>();
+    program.add_argument("--vph-standard")
+        .help("VPH standard for ranking plots. [default: auto]")
+        .default_value(-1)
+        .scan<'i', int>();
+
+    try {
+        program.parse_args(argc, argv);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << program;
         return 1;
     }
 
-    // コマンドライン引数を解析
-    const std::string bvxxfile = argv[1];
-
-    // 一通り完成したらargparseで受け取れるように変更する
-    std::variant<int, std::string, MyPalette::Palette, EColorPalette> Palette;
-    if (argc > 2) {
-        try {
-            Palette = std::stoi(argv[2]); // argv[2]を整数として解釈
-        } catch (const std::invalid_argument&) {
-            Palette = argv[2]; // 認識できない場合は文字列として扱う
-        }
-    } else {
-        Palette = kBird; // デフォルトのパレットはkBird
+    // 引数を取得
+    auto showGrid = true;
+    if (program["--hide-grid"] == true) {
+        showGrid = false;
     }
-    const std::string outputfile = (argc > 3) ? argv[3] : bvxxfile;
-    const std::string output = (outputfile.size() > 4 &&
-                                outputfile.substr(outputfile.size() - 4) == ".pdf")
-                                ? outputfile
-                                : outputfile + ".pdf";
-    int pl = -1;
-    const double TD_range[2] = {0.0, 0.0};
-    const double angle_max = 6.0;
-    const double angle_resolution = 0.1;
-    const double da_cut_slope = 0.08;
-    const double da_cut_intercept = 0.02;
-    const uint8_t da_cutPH = 9;
-    const double dlat_range = 0.05;
-    const double drad_range = 1.0;
-    const uint32_t vph_range = 100;
-    const int32_t ranking_range_min = 30;
-    const bool invertpalette = false;
-    const int font_number = 4;
-    const bool showGrid = true;
-    int vph_standard = -1;
+    auto font_number = program.get<int>("--font-number");
+    auto palette_arg = program.get<std::string>("--palette");
+    auto invertpalette = false;
+    if (program["--invert-palette"] == true) {
+        invertpalette = true;
+    }
+    auto TD_range = program.get<std::vector<double>>("--track-density-range");
+    auto angle_max = program.get<double>("--angle-max");
+    auto angle_resolution = program.get<double>("--angle-resolution");
+    auto da_cut_slope = program.get<double>("--da-cut-slope");
+    auto da_cut_intercept = program.get<double>("--da-cut-intercept");
+    auto da_cutPH = program.get<int>("--da-cut-ph");
+    auto dlat_range = program.get<double>("--dlat-range");
+    auto drad_range = program.get<double>("--drad-range");
+    auto vph_range = program.get<int>("--vph-range");
+    auto ranking_vph_min = program.get<int>("--ranking-vph-min");
+    auto vph_standard = program.get<int>("--vph-standard");
+
+    // 出力ファイル名の設定
+    const std::string output = (outputfile.empty())
+        ? (bvxxfile + ".pdf")
+        : ((outputfile.size() > 4 && outputfile.substr(outputfile.size() - 4) == ".pdf")
+            ? outputfile
+            : outputfile + ".pdf");
+
+    // カラーパレットの設定
+    std::variant<int, std::string, MyPalette::Palette, EColorPalette> Palette;
+    try {
+        Palette = std::stoi(palette_arg); // 整数として解釈
+    } catch (const std::invalid_argument&) {
+        Palette = palette_arg; // 文字列として扱う
+    }
+
     const RankingParams ranking_params_array[][3] = {
         {
             {0.0, 0.1, 120, 0.10, 0.05}, 
@@ -150,7 +257,7 @@ int main(int argc, char* argv[])
     gErrorIgnoreLevel = kError;
 
     // TTreeの作成
-    std::cout << "\nReading bvxx file: ";
+    std::cout << "\nStarting to read bvxx file..." << std::endl;
     TTree* tree = new TTree("tree", "");
     TTree* subtree = new TTree("subtree", "");
 
@@ -565,7 +672,7 @@ int main(int argc, char* argv[])
         TF1* gaus = new TF1("gaus", "gaus", 0.0, 1000.0);
         vph_temp->Fit("gaus", "q 0", "", range_min, vph_mean + vph_sigma);
         vph_standard = gaus->GetParameter(1) + 5;
-        if (vph_standard < ranking_range_min) vph_standard = ranking_range_min;
+        if (vph_standard < ranking_vph_min) vph_standard = ranking_vph_min;
         gDirectory->Delete("vph_temp");
         delete gaus;
     }
@@ -628,7 +735,7 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-void position(TCanvas *c1, TTree *tree, int pl, const double *AreaParam, const double *TD_range) noexcept
+void position(TCanvas *c1, TTree *tree, int pl, const double *AreaParam, const std::vector<double> &TD_range) noexcept
 {
     uint32_t bin = static_cast<uint32_t>(AreaParam[0]);
     double LowX = AreaParam[1];
@@ -661,7 +768,7 @@ void position(TCanvas *c1, TTree *tree, int pl, const double *AreaParam, const d
 }
 
 void position_projection(
-    TCanvas *c1, TTree *tree, const size_t entries, int pl, const double *TD_range, const double *AreaParam
+    TCanvas *c1, TTree *tree, const size_t entries, int pl, const std::vector<double> &TD_range, const double *AreaParam
 ) noexcept
 {
     gStyle->SetOptStat("");
@@ -884,7 +991,7 @@ void d_angle(TCanvas *c1, TTree *tree) noexcept
 }
 
 void d_angle_Ncut(
-    TCanvas *c1, TTree *tree, const TString da_cutX, const TString da_cutY, const uint8_t da_cutPH
+    TCanvas *c1, TTree *tree, const TString da_cutX, const TString da_cutY, const int da_cutPH
 ) noexcept
 {
     gStyle->SetOptStat("");
@@ -1018,7 +1125,7 @@ void d_angle_rl(
 }
 
 void phvph_2D(
-    TCanvas *c1, TTree *tree, const uint32_t vph_range, const double angle_max, const double angle_resolution
+    TCanvas *c1, TTree *tree, const int vph_range, const double angle_max, const double angle_resolution
 ) noexcept
 {
     gStyle->SetOptStat(0);
@@ -1063,7 +1170,7 @@ void phvph_2D(
     );
 }
 
-void phvph_1D(TCanvas *c1, TTree *tree, const uint32_t vph_range, const uint8_t i, const double interval) noexcept
+void phvph_1D(TCanvas *c1, TTree *tree, const int vph_range, const uint8_t i, const double interval) noexcept
 {
     gStyle->SetOptStat("");
     gStyle->SetTitleOffset(1.1, "x");

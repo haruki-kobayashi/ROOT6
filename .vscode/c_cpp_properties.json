@@ -3,12 +3,19 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "M:\\data\\NINJA\\ROOT\\root_v6.32.10.win64.vc17\\include",
+                "E:\\udd\\hkobayashi\\cpp\\include",
+                "E:\\udd\\hkobayashi\\cpp\\Download\\magic_enum-master\\include",
+                "E:\\udd\\hkobayashi\\cpp\\Download\\argparse-3.2\\include",
+                "E:\\udd\\hkobayashi\\cpp\\Download\\yaml-cpp-0.8.0\\include",
+                "E:\\udd\\hkobayashi\\cpp\\ROOT6\\include"
             ],
             "defines": [
                 "_DEBUG",
                 "UNICODE",
-                "_UNICODE"
+                "_UNICODE",
+                "_CRT_SECURE_NO_WARNINGS"
             ],
             "windowsSdkVersion": "10.0.26100.0",
             "compilerPath": "cl.exe",

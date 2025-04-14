@@ -11,10 +11,10 @@ struct RankingParams {
     double lat_lin_max;
 };
 
-void position(TCanvas *c1, TTree *tree, int pl, const double *AreaParam, const double *TDRange) noexcept;
+void position(TCanvas *c1, TTree *tree, int pl, const double *AreaParam, const std::vector<double> &TDRange) noexcept;
 
 void position_projection(
-    TCanvas *c1, TTree *tree, const size_t entries, int pl, const double *TDRange, const double *AreaParam
+    TCanvas *c1, TTree *tree, const size_t entries, int pl, const std::vector<double> &TDRange, const double *AreaParam
 ) noexcept;
 
 void angle(TCanvas *c1, TTree *tree, int pl, const double angle_max, const double angle_resolution) noexcept;
@@ -24,7 +24,7 @@ void angle_projection(TCanvas *c1, TTree *tree, int pl, const double angle_max, 
 void d_angle(TCanvas *c1, TTree *tree) noexcept;
 
 void d_angle_Ncut(
-    TCanvas *c1, TTree *tree, const TString da_cutX, const TString da_cutY, const uint8_t da_cutPH
+    TCanvas *c1, TTree *tree, const TString da_cutX, const TString da_cutY, const int da_cutPH
 ) noexcept;
 
 void d_angle_rl(
@@ -32,10 +32,10 @@ void d_angle_rl(
 ) noexcept;
 
 void phvph_2D(
-    TCanvas *c1, TTree *tree, const uint32_t vph_range, const double angle_max, const double angle_resolution
+    TCanvas *c1, TTree *tree, const int vph_range, const double angle_max, const double angle_resolution
 ) noexcept;
 
-void phvph_1D(TCanvas *c1, TTree *tree, const uint32_t vph_range, const uint8_t i, const double interval) noexcept;
+void phvph_1D(TCanvas *c1, TTree *tree, const int vph_range, const uint8_t i, const double interval) noexcept;
 
 void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_t vph_standard) noexcept;
 

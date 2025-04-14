@@ -1,9 +1,9 @@
-#include <ROOT6/MyPalette.hpp>
 #include <iostream>
-#include <magic_enum.hpp>
+#include <variant>
 #include <TColor.h>
 #include <TStyle.h>
-#include <variant>
+#include <magic_enum/magic_enum.hpp>
+#include <ROOT6/MyPalette.hpp>
 
 namespace MyPalette {
 

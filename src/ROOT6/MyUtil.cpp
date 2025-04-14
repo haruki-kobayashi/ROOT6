@@ -1,4 +1,3 @@
-#include <ROOT6/MyUtil.hpp>
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -6,6 +5,7 @@
 #include <TH1.h>
 #include <TBox.h>
 #include <TStyle.h>
+#include <ROOT6/MyUtil.hpp>
 
 namespace MyUtil {
 
