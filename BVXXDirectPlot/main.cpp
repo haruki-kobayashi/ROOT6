@@ -1,6 +1,9 @@
-// libCling.lib をリンクすると argparse と干渉するっぽいが、他のROOTのlibを一つずつ
-// リンクするのは面倒なので、 libCling.lib 以外をコピーしたフォルダ (lib_NoCling) を作り
-// 「構成プロパティ」→「リンカー」→「入力」→「追加の依存ファイル」に lib_NoCling\*lib; を追加した
+// libCling.lib をリンクするとargparseと干渉するっぽいので、ROOTのlibフォルダの中身を*.libで全部リンクしてはいけない。
+// 必要なものだけを $(SolutionDir)\lib にコピーし、「構成プロパティ」→「リンカー」→「入力」→「追加の依存ファイル」に
+// $(SolutionDir)\lib\*lib を設定して対応した。
+// ROOTのlibでこのプログラムに必要だったのは libCore.lib, libGpad.lib, libGraf.lib, libHist.lib, libTree.lib の5つ。
+
+#define YAML_CPP_STATIC_DEFINE
 
 #include <iostream>
 #include <fstream>
@@ -10,6 +13,7 @@
 #include <variant>
 #include <array>
 #include <csignal>
+#include <unordered_map>
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -31,6 +35,7 @@
 #include <VxxReader/Template.h>
 #include <VxxReader/netscan_data_types_ui.h>
 #include <argparse/argparse.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <ROOT6/MyUtil.hpp>
 #include <ROOT6/MyPalette.hpp>
@@ -38,9 +43,14 @@
 #include <ROOT6/StderrSuppressor.hpp>
 #include "main.hpp"
 
-// Ctrl+Cで終了したときの処理用にグローバル変数を定義
-TCanvas* global_c1 = nullptr;
-std::string global_output = "";
+namespace {
+    // Ctrl+Cで終了したときの処理用にグローバル変数を定義
+    TCanvas* global_c1 = nullptr;
+    std::string global_output = "";
+
+    // その他のグローバル変数
+    bool global_darkmode = false;
+}
 
 // Ctrl+Cで終了したときの処理
 void handleSIGINT(int) {
@@ -58,189 +68,468 @@ void handleSIGINT(int) {
     std::exit(0);
 }
 
-int main(int argc, char* argv[])
-{
-    // Ctrl+Cで終了したときの処理
-    std::signal(SIGINT, handleSIGINT);
+void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[]) {
+    parser.set_usage_max_line_width(80);
+    parser.add_description("Tips: You can combine single-character arguments.\n"
+        "      For example, \"-d -p kBird -i\" is equivalent to \"-dpi kBird\".");
 
-    // argparseを使用して引数を解析
-    argparse::ArgumentParser program("BvxxDirectPlot.exe", "1.0.0");
-    // argparse::ArgumentParser program("BvxxDirectPlot.exe", "1.0.0", argparse::default_arguments::none);
-    program.set_usage_max_line_width(80);
-
-    // program.add_argument("-h", "--help")
-    //     .action([&](const std::string& s) {
-    //         std::cout << program.help().str();
-    //         std::exit(1);
-    //     })
-    //     .default_value(false)
-    //     .help("shows help message and exits")
-    //     .implicit_value(true)
-    //     .nargs(0);
     // 必須引数: bvxxファイル
-    std::string bvxxfile = "";
-    program.add_argument("input_bvxx")
+    parser.add_argument("input_bvxx")
         .help("Path to the bvxx file to be processed.")
-        .store_into(bvxxfile);
-    // オプション引数: 出力ファイル
-    std::string outputfile = "";
-    program.add_argument("-o", "--output")
+        .required();
+    parser.add_group("Optional arguments");
+    // オプション引数: 出力ファイル名
+    parser.add_argument("-o", "--output")
         .help("Output PDF file name. [default: input_bvxx.pdf]")
-        .store_into(outputfile);
+        .default_value(std::string());
     // オプション引数: PL番号
-    int pl = -1;
-    program.add_argument("-pl", "--pl-number")
-        .help("Plate number to be used. [default: auto]")
-        .store_into(pl);
+    parser.add_argument("-pl", "--pl_number")
+        .help("Plate number to be used. (default: auto)")
+        .default_value(-1)
+        .scan<'i', int>();
+    // オプション引数: パラメータファイル
+    parser.add_argument("-param", "--param_file")
+        .help("Path to the parameter YAML file.\n"
+            "If not specified, the default parameters and command line will be used.\n"
+            "The command line options will override the parameters in the YAML file.")
+        .default_value(std::string());
     // オプション引数: その他の設定
-    program.add_argument("-g", "--hide-grid")
-        .help("Hide grid. [default: show]")
-        .flag();
-    program.add_argument("-f", "--font-number")
+    parser.add_argument("-on", "--on_plot")
+        .help("Plot the selected plots. If not specified, all plots are selected.\n"
+            "[pos, pos-prj, ang, ang-prj, da, da-nc, da-rl, ph2d, ph1d,\n"
+            " rank, dxyz, dxy, sennot, sendrz]")
+        .choices("pos", "pos-prj", "ang", "ang-prj", "da", "da-nc", "da-rl",
+            "ph2d", "ph1d", "rank", "dxyz", "dxy", "sennot", "sendrz")
+        .nargs(0, 14);
+    parser.add_argument("-off", "--off_plot")
+        .help("Do not plot the selected plots.\n"
+            "[pos, pos-prj, ang, ang-prj, da, da-nc, da-rl, ph2d, ph1d,\n"
+            " rank, dxyz, dxy, sennot, sendrz]")
+        .choices("pos", "pos-prj", "ang", "ang-prj", "da", "da-nc", "da-rl",
+            "ph2d", "ph1d", "rank", "dxyz", "dxy", "sennot", "sendrz")
+        .nargs(0, 14);
+    parser.add_argument("-f", "--font_number")
         .help("Font number (default: Helvetica).\n"
             "4, 13, 6, or 2 are recommended.\n"
             "Refer to https://root.cern.ch/doc/master/classTAttText.html\n"
             "for details.")
         .default_value(4)
         .scan<'i', int>();
-    program.add_argument("-p", "--palette")
+    parser.add_argument("-g", "--hide_grid")
+        .help("Hide grid. [default: false]")
+        .flag();
+    parser.add_argument("-d", "--dark_mode")
+        .help("Dark mode. [default: false]")
+        .flag();
+    parser.add_argument("-p", "--palette")
         .help("Color palette to use.\n"
-            "All ROOT palettes (https://root.cern.ch/doc/v632/classTColor.html)\n"
+            "All ROOT palettes (https://root.cern.ch/doc/master/classTColor.html)\n"
             "and the following custom palettes are available:\n"
-            " - kBirdDark, kRedWhiteBlue, kRedBlackBlue,\n"
-            " - kMagentaWhiteGreen, kMagentaBlackGreen,\n"
+            " - kBirdDark, kBlueWhiteRed, kBlueBlackRed,\n"
+            " - kGreenWhiteMagenta, kGreenBlackMagenta,\n"
             " - kLegacy (ROOT5's default).")
         .default_value(std::string("kBird"));
-    program.add_argument("-ip", "--invert-palette")
-        .help("Invert color palette.")
+    parser.add_argument("-c", "--contours")
+        .help("Number of contours in the color palette.")
+        .default_value(256)
+        .scan<'i', int>();
+    parser.add_argument("-i", "--invert_palette")
+        .help("Invert the color palette vertically. [default: false]")
         .flag();
-    program.add_argument("--track-density-range")
-        .help("Track density (/mm2) range for plotting. [default: auto]\n"
+    parser.add_argument("-n", "--negate_palette")
+        .help("Negate the color palette. [default: false]")
+        .flag();
+    parser.add_group("Cut options");
+    parser.add_argument("-x", "--cut_x")
+        .help("Cut X range (μm).\n"
             "First = minimum, Second = maximum.")
         .default_value(std::vector<double>({0.0, 0.0}))
         .nargs(2)
         .scan<'g', double>();
-    program.add_argument("--angle-max")
-        .help("Maximum angle (tanθ) for plotting.")
+    parser.add_argument("-y", "--cut_y")
+        .help("Cut Y range (μm).\n"
+            "First = minimum, Second = maximum.")
+        .default_value(std::vector<double>({0.0, 0.0}))
+        .nargs(2)
+        .scan<'g', double>();
+    parser.add_argument("-ax", "--cut_ax")
+        .help("Cut ax range (tanθ).\n"
+            "First = minimum, Second = maximum.")
+        .default_value(std::vector<double>({0.0, 0.0}))
+        .nargs(2)
+        .scan<'g', double>();
+    parser.add_argument("-ay", "--cut_ay")
+        .help("Cut ay range (tanθ).\n"
+            "First = minimum, Second = maximum.")
+        .default_value(std::vector<double>({0.0, 0.0}))
+        .nargs(2)
+        .scan<'g', double>();
+    parser.add_argument("-tan", "--cut_tan")
+        .help("Cut tanθ (sqrt(ax*ax+ay*ay)) range.\n"
+            "First = minimum, Second = maximum.")
+        .default_value(std::vector<double>({0.0, 0.0}))
+        .nargs(2)
+        .scan<'g', double>();
+    parser.add_argument("-ph-ang", "--cut_ph_angle")
+        .help("Angle (tanθ) list of PH sum cut. Must be used with -ph-th together.\n"
+            "For example, \"-ph-ang 0.1 0.2 0.5 -ph-th 20 18 16\" defines cuts\n"
+            "as [0.0,0.1): ≧20, [0.1,0.2): ≧18, [0.2,0.5): ≧16.")
+        .default_value(std::vector<double>())
+        .nargs(0, 100)
+        .scan<'g', double>();
+    parser.add_argument("-ph-th", "--cut_ph_threshold")
+        .help("Threshold list of PH sum cut. Must be used with -ph-ang together.\n"
+            "For example, \"-ph-ang 0.1 0.2 0.5 -ph-th 20 18 16\" defines cuts\n"
+            "as [0.0,0.1): ≧20, [0.1,0.2): ≧18, [0.2,0.5): ≧16.")
+        .default_value(std::vector<int>())
+        .nargs(0, 100)
+        .scan<'d', int>();
+    parser.add_argument("-vph-ang", "--cut_vph_angle")
+        .help("Angle (tanθ) list of VPH sum cut. Must be used with -vph-th together.\n"
+            "For example, \"-vph-ang 0.1 0.2 0.5 -vph-th 60 40 20\" defines cuts\n"
+            "as [0.0,0.1): ≧60, [0.1,0.2): ≧40, [0.2,0.5): ≧20.")
+        .default_value(std::vector<double>())
+        .nargs(0, 100)
+        .scan<'g', double>();
+    parser.add_argument("-vph-th", "--cut_vph_threshold")
+        .help("Threshold list of VPH sum cut. Must be used with -vph-ang together.\n"
+            "For example, \"-vph-ang 0.1 0.2 0.5 -vph-th 60 40 20\" defines cuts\n"
+            "as [0.0,0.1): ≧60, [0.1,0.2): ≧40, [0.2,0.5): ≧20.")
+        .default_value(std::vector<int>())
+        .nargs(0, 100)
+        .scan<'d', int>();
+    parser.add_group("More detailed options");
+    parser.add_argument("-cor", "--angle_correction")
+        .help("Base track angle correction factor.")
+        .default_value(1.0)
+        .scan<'g', double>();
+    parser.add_argument("-corm", "--angle_correction_micro")
+        .help("Micro track angle correction factor.")
+        .default_value(1.0)
+        .scan<'g', double>();
+    parser.add_argument("--track_density_range")
+        .help("Track density (/mm2) range for plotting. (default: auto)\n"
+            "First = minimum, Second = maximum.")
+        .default_value(std::vector<double>({0.0, 0.0}))
+        .nargs(2)
+        .scan<'g', double>();
+    parser.add_argument("--angle_max")
+        .help("Maximum angle range (tanθ) for plotting.")
         .default_value(6.0)
         .scan<'g', double>();
-    program.add_argument("--angle-resolution")
+    parser.add_argument("--angle_resolution")
         .help("Resolution of angle hists (tanθ).")
         .default_value(0.1)
         .scan<'g', double>();
-    program.add_argument("--da-cut-slope")
+    parser.add_argument("--da_cut_slope")
         .help("Slope for d-angle noise cut.")
         .default_value(0.08)
         .scan<'g', double>();
-    program.add_argument("--da-cut-intercept")
+    parser.add_argument("--da_cut_intercept")
         .help("Intercept for d-angle noise cut.")
         .default_value(0.02)
         .scan<'g', double>();
-    program.add_argument("--da-cut-ph")
-        .help("d-angle noise cut PH threshold (keep PH >= VAR).")
+    parser.add_argument("--da_cut_ph")
+        .help("d-angle noise cut PH threshold (keep ≧ VAR).")
         .default_value(9)
         .scan<'d', int>();
-    program.add_argument("--dlat-range")
+    parser.add_argument("--dlat_range")
         .help("delta lateral range.")
         .default_value(0.05)
         .scan<'g', double>();
-    program.add_argument("--drad-range")
+    parser.add_argument("--drad_range")
         .help("delta radial range.")
         .default_value(1.0)
         .scan<'g', double>();
-    program.add_argument("--vph-range")
-        .help("VPH hists plot range for one face.")
-        .default_value(100)
+    parser.add_argument("--vph_range")
+        .help("VPH sum range for plot.")
+        .default_value(200)
         .scan<'i', int>();
-    program.add_argument("--ranking-vph-min")
+    parser.add_argument("--ranking_vph_min")
         .help("Minimum y-axis range for ranking plots.")
         .default_value(30)
         .scan<'i', int>();
-    program.add_argument("--vph-standard")
-        .help("VPH standard for ranking plots. [default: auto]")
+    parser.add_argument("--vph_standard")
+        .help("VPH standard for ranking plots. (default: auto)")
         .default_value(-1)
+        .scan<'i', int>();
+    parser.add_argument("--dxyz_cut_ph")
+        .help("dx, dy, dz noise cut PH sum threshold (keep ≧ VAR)")
+        .default_value(24)
         .scan<'i', int>();
 
     try {
-        program.parse_args(argc, argv);
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        std::cerr << program;
-        return 1;
+        parser.parse_args(argc, argv);
+    } catch (const std::runtime_error& err) {
+        std::cerr << "\nError: " << err.what() << std::endl;
+        std::cerr << parser;
+        std::cerr << "\nError: " << err.what() << std::endl;
+        std::exit(1);
     }
+}
+
+int main(int argc, char* argv[])
+{
+    // Ctrl+Cで終了したときの処理を設定
+    std::signal(SIGINT, handleSIGINT);
+
+    // 処理時間を計測
+    TStopwatch sw;
+
+    // argparseを使用して引数を解析
+    std::cout << "\nInitializing..." << std::endl;
+    argparse::ArgumentParser parser("BvxxDirectPlot.exe", "1.0.0");
+    parse_arguments(parser, argc, argv);
 
     // 引数を取得
-    auto showGrid = true;
-    if (program["--hide-grid"] == true) {
-        showGrid = false;
+    const auto bvxxfile = parser.get<std::string>("input_bvxx");
+    const auto output_arg = parser.get<std::string>("--output");
+    auto pl = parser.get<int>("--pl_number");
+    const auto param_file = parser.get<std::string>("--param_file");
+    std::unordered_map<std::string, bool> on_plot, off_plot;
+    for (const auto& plot : parser.get<std::vector<std::string>>("--on_plot")) {
+        on_plot[plot] = true;
     }
-    auto font_number = program.get<int>("--font-number");
-    auto palette_arg = program.get<std::string>("--palette");
-    auto invertpalette = false;
-    if (program["--invert-palette"] == true) {
-        invertpalette = true;
+    for (const auto& plot : parser.get<std::vector<std::string>>("--off_plot")) {
+        off_plot[plot] = true;
     }
-    auto TD_range = program.get<std::vector<double>>("--track-density-range");
-    auto angle_max = program.get<double>("--angle-max");
-    auto angle_resolution = program.get<double>("--angle-resolution");
-    auto da_cut_slope = program.get<double>("--da-cut-slope");
-    auto da_cut_intercept = program.get<double>("--da-cut-intercept");
-    auto da_cutPH = program.get<int>("--da-cut-ph");
-    auto dlat_range = program.get<double>("--dlat-range");
-    auto drad_range = program.get<double>("--drad-range");
-    auto vph_range = program.get<int>("--vph-range");
-    auto ranking_vph_min = program.get<int>("--ranking-vph-min");
-    auto vph_standard = program.get<int>("--vph-standard");
+    auto font_number = parser.get<int>("--font_number");
+    auto hideGrid = parser.get<bool>("--hide_grid");
+    global_darkmode = parser.get<bool>("--dark_mode");
+    auto palette_arg = parser.get<std::string>("--palette");
+    auto NContours = parser.get<int>("--contours");
+    auto invertpalette = parser.get<bool>("--invert_palette");
+    auto negatepalette = parser.get<bool>("--negate_palette");
+    auto cutX = parser.get<std::vector<double>>("--cut_x");
+    auto cutY = parser.get<std::vector<double>>("--cut_y");
+    auto cutAx = parser.get<std::vector<double>>("--cut_ax");
+    auto cutAy = parser.get<std::vector<double>>("--cut_ay");
+    auto cutTan = parser.get<std::vector<double>>("--cut_tan");
+    auto cutPHang = parser.get<std::vector<double>>("--cut_ph_angle");
+    auto cutPHth = parser.get<std::vector<int>>("--cut_ph_threshold");
+    auto cutVPHang = parser.get<std::vector<double>>("--cut_vph_angle");
+    auto cutVPHth = parser.get<std::vector<int>>("--cut_vph_threshold");
+    auto angle_correction = parser.get<double>("--angle_correction");
+    auto angle_correction_micro = parser.get<double>("--angle_correction_micro");
+    auto TD_range = parser.get<std::vector<double>>("--track_density_range");
+    auto angle_max = parser.get<double>("--angle_max");
+    auto angle_resolution = parser.get<double>("--angle_resolution");
+    auto da_cut_slope = parser.get<double>("--da_cut_slope");
+    auto da_cut_intercept = parser.get<double>("--da_cut_intercept");
+    auto da_cutPH = parser.get<int>("--da_cut_ph");
+    auto dlat_range = parser.get<double>("--dlat_range");
+    auto drad_range = parser.get<double>("--drad_range");
+    auto vph_range = parser.get<int>("--vph_range");
+    auto ranking_vph_min = parser.get<int>("--ranking_vph_min");
+    auto vph_standard = parser.get<int>("--vph_standard");
+    auto dxyz_cutPH = parser.get<int>("--dxyz_cut_ph");
+
+    if (!parser.is_used("-param") && parser.is_used("-on") && parser.is_used("-off")) {
+        std::cerr << "\nError: -on/-off cannot be used together when the -param is not specified." << std::endl;
+        std::exit(1);
+    }
+
+    std::vector<std::vector<RankingParams>> ranking_params_vec;
+
+    // YAMLファイルから引数を取得
+    if (parser.is_used("--param_file")) {
+        try {
+            YAML::Node params = YAML::LoadFile(param_file);
+            for (const auto& plot : params["on_plot"].as<std::vector<std::string>>(std::vector<std::string>())) {
+                on_plot[plot] = true;
+            }
+            for (const auto& plot : params["off_plot"].as<std::vector<std::string>>(std::vector<std::string>())) {
+                if (!on_plot.count(plot)) { // YAMLファイルのoff_plotからon_plotと被るものを除外(コマンドライン引数の優先)
+                    off_plot[plot] = true;
+                }
+            }
+            if (!parser.is_used("-f")) {
+                font_number = params["font_number"].as<int>(4);
+            }
+            hideGrid = params["hide_grid"].as<bool>(false);
+            if (parser.is_used("-g")) {
+                hideGrid = !hideGrid;
+            }
+            global_darkmode = params["dark_mode"].as<bool>(false);
+            if (parser.is_used("-d")) {
+                global_darkmode = !global_darkmode;
+            }
+            if (!parser.is_used("-p")) {
+                palette_arg = params["palette"].as<std::string>("kBird");
+            }
+            if (!parser.is_used("-c")) {
+                NContours = params["contours"].as<int>(256);
+            }
+            invertpalette = params["invert_palette"].as<bool>(false);
+            if (parser.is_used("-i")) {
+                invertpalette = !invertpalette;
+            }
+            negatepalette = params["negate_palette"].as<bool>(false);
+            if (parser.is_used("-n")) {
+                negatepalette = !negatepalette;
+            }
+            if (!parser.is_used("-x")) {
+                cutX = params["cut_x"].as<std::vector<double>>(std::vector<double>({0.0, 0.0}));
+            }
+            if (!parser.is_used("-y")) {
+                cutY = params["cut_y"].as<std::vector<double>>(std::vector<double>({0.0, 0.0}));
+            }
+            if (!parser.is_used("-ax")) {
+                cutAx = params["cut_ax"].as<std::vector<double>>(std::vector<double>({0.0, 0.0}));
+            }
+            if (!parser.is_used("-ay")) {
+                cutAy = params["cut_ay"].as<std::vector<double>>(std::vector<double>({0.0, 0.0}));
+            }
+            if (!parser.is_used("-tan")) {
+                cutTan = params["cut_tan"].as<std::vector<double>>(std::vector<double>({0.0, 0.0}));
+            }
+            if (!parser.is_used("-ph-ang")) {
+                cutPHang = params["cut_ph_angle"].as<std::vector<double>>(std::vector<double>());
+            }
+            if (!parser.is_used("-ph-th")) {
+                cutPHth = params["cut_ph_threshold"].as<std::vector<int>>(std::vector<int>({0, 0}));
+            }
+            if (!parser.is_used("-vph-ang")) {
+                cutVPHang = params["cut_vph_angle"].as<std::vector<double>>(std::vector<double>());
+            }
+            if (!parser.is_used("-vph-th")) {
+                cutVPHth = params["cut_vph_threshold"].as<std::vector<int>>(std::vector<int>());
+            }
+            if (!parser.is_used("--angle_correction")) {
+                angle_correction = params["angle_correction"].as<double>(1.0);
+            }
+            if (!parser.is_used("--angle_correction_micro")) {
+                angle_correction_micro = params["angle_correction_micro"].as<double>(1.0);
+            }
+            if (!parser.is_used("--track_density_range")) {
+                TD_range = params["track_density_range"].as<std::vector<double>>(std::vector<double>({0.0, 0.0}));
+            }
+            if (!parser.is_used("--angle_max")) {
+                angle_max = params["angle_max"].as<double>(6.0);
+            }
+            if (!parser.is_used("--angle_resolution")) {
+                angle_resolution = params["angle_resolution"].as<double>(0.1);
+            }
+            if (!parser.is_used("--da_cut_slope")) {
+                da_cut_slope = params["da_cut_slope"].as<double>(0.08);
+            }
+            if (!parser.is_used("--da_cut_intercept")) {
+                da_cut_intercept = params["da_cut_intercept"].as<double>(0.02);
+            }
+            if (!parser.is_used("--da_cut_ph")) {
+                da_cutPH = params["da_cut_ph"].as<int>(9);
+            }
+            if (!parser.is_used("--dlat_range")) {
+                dlat_range = params["dlat_range"].as<double>(0.05);
+            }
+            if (!parser.is_used("--drad_range")) {
+                drad_range = params["drad_range"].as<double>(1.0);
+            }
+            if (!parser.is_used("--vph_range")) {
+                vph_range = params["vph_range"].as<int>(200);
+            }
+            if (!parser.is_used("--ranking_vph_min")) {
+                ranking_vph_min = params["ranking_vph_min"].as<int>(30);
+            }
+            if (!parser.is_used("--vph_standard")) {
+                vph_standard = params["vph_standard"].as<int>(-1);
+            }
+            if (!parser.is_used("--dxyz_cut_ph")) {
+                dxyz_cutPH = params["dxyz_cut_ph"].as<int>(24);
+            }
+            if (params["ranking_params"] && params["ranking_params"].IsSequence()) {
+                std::vector<std::vector<RankingParams>> temp_ranking_params_vec;
+
+                for (const auto& page : params["ranking_params"]) {
+                    if (!page.IsSequence()) continue;
+
+                    std::vector<RankingParams> page_params;
+                    for (const auto& param : page) {
+                        if (!param.IsMap()) continue;
+
+                        RankingParams rp;
+                        rp.tan_low = param["tan_low"].as<double>(0.0);
+                        rp.tan_up = param["tan_up"].as<double>(0.0);
+                        rp.vph_standard_plus = param["vph_standard_plus"].as<int>(0);
+                        rp.xy_lin_max = param["xy_lin_max"].as<double>(0.0);
+                        rp.lat_lin_max = param["lat_lin_max"].as<double>(0.0);
+
+                        page_params.push_back(rp);
+                    }
+                    if (!page_params.empty()) {
+                        temp_ranking_params_vec.push_back(page_params);
+                    }
+                }
+
+                if (!temp_ranking_params_vec.empty()) {
+                    ranking_params_vec = temp_ranking_params_vec;
+                }
+            }
+        } catch (const YAML::Exception& e) {
+            std::cerr << "Error: Failed to load parameter file: " << param_file << std::endl;
+            std::cerr << e.what() << std::endl;
+            return 1;
+        }
+    }
+
+    if (ranking_params_vec.empty()) {
+        ranking_params_vec = {
+            {
+                {0.0, 0.1, 120, 0.10, 0.05},
+                {0.1, 0.2,  70, 0.10, 0.05},
+                {0.2, 0.3,  45, 0.10, 0.05}
+            },
+            {
+                {0.3, 0.4, 25, 0.14, 0.05},
+                {0.4, 0.5, 20, 0.15, 0.05},
+                {0.5, 0.6, 15, 0.15, 0.05}
+            },
+            {
+                {0.6, 0.7, 10, 0.20, 0.05},
+                {0.7, 0.8,  0, 0.20, 0.05},
+                {0.8, 0.9,  0, 0.20, 0.05}
+            },
+            {
+                {0.9, 1.0, 0, 0.25, 0.05},
+                {1.0, 1.1, 0, 0.30, 0.05},
+                {1.1, 1.3, 0, 0.35, 0.05}
+            },
+            {
+                {1.3, 1.5, 0, 0.35, 0.05},
+                {1.5, 2.0, 0, 0.50, 0.05},
+                {2.0, 2.5, 0, 0.60, 0.05}
+            },
+            {
+                {2.5, 3.0, 0, 0.70, 0.05},
+                {3.0, 4.0, 0, 0.90, 0.05},
+                {4.0, 5.0, 0, 1.00, 0.05}
+            }
+        };
+    }
 
     // 出力ファイル名の設定
-    const std::string output = (outputfile.empty())
+    const std::string output = (output_arg.empty())
         ? (bvxxfile + ".pdf")
-        : ((outputfile.size() > 4 && outputfile.substr(outputfile.size() - 4) == ".pdf")
-            ? outputfile
-            : outputfile + ".pdf");
+        : ((output_arg.size() > 4 && output_arg.substr(output_arg.size() - 4) == ".pdf")
+            ? output_arg
+            : output_arg + ".pdf");
 
-    // カラーパレットの設定
-    std::variant<int, std::string, MyPalette::Palette, EColorPalette> Palette;
-    try {
-        Palette = std::stoi(palette_arg); // 整数として解釈
-    } catch (const std::invalid_argument&) {
-        Palette = palette_arg; // 文字列として扱う
-    }
-
-    const RankingParams ranking_params_array[][3] = {
-        {
-            {0.0, 0.1, 120, 0.10, 0.05}, 
-            {0.1, 0.2,  70, 0.10, 0.05}, 
-            {0.2, 0.3,  45, 0.10, 0.05}
-        },
-        {
-            {0.3, 0.4, 25, 0.14, 0.05}, 
-            {0.4, 0.5, 20, 0.15, 0.05}, 
-            {0.5, 0.6, 15, 0.15, 0.05}
-        },
-        {
-            {0.6, 0.7, 10, 0.20, 0.05}, 
-            {0.7, 0.8,  0, 0.20, 0.05}, 
-            {0.8, 0.9,  0, 0.20, 0.05}
-        },
-        {
-            {0.9, 1.0, 0, 0.25, 0.05}, 
-            {1.0, 1.1, 0, 0.30, 0.05}, 
-            {1.1, 1.3, 0, 0.35, 0.05}
-        },
-        {
-            {1.3, 1.5, 0, 0.35, 0.05}, 
-            {1.5, 2.0, 0, 0.50, 0.05}, 
-            {2.0, 2.5, 0, 0.60, 0.05}
-        },
-        {
-            {2.5, 3.0, 0, 0.70, 0.05}, 
-            {3.0, 4.0, 0, 0.90, 0.05}, 
-            {4.0, 5.0, 0, 1.00, 0.05}
-        }
-    };
-
+    // 引数を利用する変数を設定
     const int font_code = 10 * font_number + 2;
+    std::set<std::string> plot_list;
+    if (on_plot.empty()) {
+        plot_list = {
+            "pos", "pos-prj", "ang", "ang-prj", "da", "da-nc", "da-rl",
+            "ph2d", "ph1d", "rank", "dxyz", "dxy", "sennot", "sendrz"
+        };
+    } else {
+        for (const auto& [plot, _] : on_plot) {
+            if (!off_plot.count(plot)) {
+                plot_list.insert(plot);
+            }
+        }
+    }
+    const int phvph_loop = static_cast<int>((angle_max - 0.1) * 2) + 2;
     const TString da_cutX = Form(
         "(%f * (ax < 0 ? -ax : ax) + %f)",
         da_cut_slope, da_cut_intercept
@@ -249,15 +538,105 @@ int main(int argc, char* argv[])
         "(%f * (ay < 0 ? -ay : ay) + %f)",
         da_cut_slope, da_cut_intercept
     );
+    // PH, VPHカットが正しく設定されているか確認
+    if (parser.is_used("-ph-ang") || parser.is_used("-ph-th")) {
+        if (!parser.is_used("-ph-ang") || !parser.is_used("-ph-th")) {
+            std::cerr << "Error: PH cut angles and thresholds must be used together." << std::endl;
+            return 1;
+        }
+        if (cutPHang.empty() || cutPHth.empty()) {
+            std::cerr << "Error: PH cut angles and thresholds must be specified." << std::endl;
+            return 1;
+        }
+        if (cutPHang.size() != cutPHth.size()) {
+            std::cerr << "Error: The number of PH cut angles and thresholds must be the same." << std::endl;
+            return 1;
+        }
+    }
+    if (parser.is_used("-vph-ang") || parser.is_used("-vph-th")) {
+        if (!parser.is_used("-vph-ang") || !parser.is_used("-vph-th")) {
+            std::cerr << "Error: VPH cut angles and thresholds must be used together." << std::endl;
+            return 1;
+        }
+        if (cutVPHang.empty() || cutVPHth.empty()) {
+            std::cerr << "Error: VPH cut angles and thresholds must be specified." << std::endl;
+            return 1;
+        }
+        if (cutVPHang.size() != cutVPHth.size()) {
+            std::cerr << "Error: The number of VPH cut angles and thresholds must be the same." << std::endl;
+            return 1;
+        }
+    }
+    // PH, VPHカットの設定
+    cutPHang.insert(cutPHang.begin(), 0.0); // tanθ=0.0を先頭に追加
+    cutPHth.push_back(0); // thresholdの末尾に0を追加
+    cutVPHang.insert(cutVPHang.begin(), 0.0); // tanθ=0.0を先頭に追加
+    cutVPHth.push_back(0); // thresholdの末尾に0を追加
 
-    // 処理時間を計測
-    TStopwatch sw;
+    // カラーパレットの設定
+    std::variant<int, std::string> Palette;
+    try {
+        Palette = std::stoi(palette_arg); // 整数として解釈
+    } catch (const std::invalid_argument&) {
+        Palette = palette_arg; // 整数でなかったら文字列として扱う
+    }
+    std::visit([NContours](auto&& arg) { MyPalette::SetPalette(arg, NContours); }, Palette);
+    if (invertpalette) MyPalette::InvertPalette();
+    if (negatepalette) MyPalette::NegatePalette();
+    // カラー定義
+    float r1, g1, b1, r2, g2, b2, r3, g3, b3;
+    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.15))->GetRGB(r1, g1, b1);
+    gROOT->GetColor(90)->SetRGB(r1, g1, b1);
+    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.85))->GetRGB(r3, g3, b3);
+    gROOT->GetColor(91)->SetRGB(r3, g3, b3);
+    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.5))->GetRGB(r2, g2, b2);
+    gROOT->GetColor(92)->SetRGB(r2, g2, b2);
+    gROOT->GetColor(93)->SetRGB(r2 * 0.6, g2 * 0.6, b2 * 0.6);
+    gROOT->GetColor(94)->SetRGB( 200./255., 200./255., 200./255.);
+    gROOT->GetColor(95)->SetRGB(  60./255.,  60./255.,  60./255.);
+    // カラーの設定
+    gStyle->SetHistFillColor(92); // ヒストグラム
+    gStyle->SetHistLineColor(93); // ヒストグラムの枠
+    gStyle->SetFuncColor(93);     // グラフ
+    gStyle->SetGridColor(global_darkmode ? 95 : 94);       // グリッド
+    gStyle->SetCanvasColor(global_darkmode ? 1 : 0);       // キャンバス(全体の背景)
+    gStyle->SetPadColor(global_darkmode ? 1 : 0);          // Pad(グラフの背景はこれ)
+    gStyle->SetStatColor(global_darkmode ? 1 : 0);         // 統計box
+    gStyle->SetAxisColor(global_darkmode ? 0 : 1, "xyz");  // 軸
+    gStyle->SetLabelColor(global_darkmode ? 0 : 1, "xyz"); // 軸ラベル(数値)
+    gStyle->SetTitleColor(global_darkmode ? 0 : 1, "xyz"); // 軸タイトル
+    gStyle->SetTitleTextColor(global_darkmode ? 0 : 1);    // メインのタイトル
+    gStyle->SetFrameLineColor(global_darkmode ? 0 : 1);    // 描画エリアの枠
+    gStyle->SetStatTextColor(global_darkmode ? 0 : 1);     // 統計box内のtext
+    gStyle->SetLineColor(global_darkmode ? 0 : 1);         // 統計boxの枠など
+
+    // スタイルの設定
+    gStyle->SetPadRightMargin(0.1);      // Pad右側のマージン
+    gStyle->SetPadLeftMargin(0.1);       // Pad左側のマージン
+    gStyle->SetPadTopMargin(0.1);        // Pad上側のマージン
+    gStyle->SetPadBottomMargin(0.11);    // Pad下側のマージン
+    gStyle->SetLabelOffset(0.008,"xyz"); // 軸ラベル(数値)と軸の距離
+    gStyle->SetTitleOffset(1.1,"xyz");   // 軸titleと軸の距離
+    gStyle->SetTitleY(0.985);            // タイトルのy方向の位置
+    gStyle->SetHistFillStyle(1011); // ヒストグラム内部のパターン 1011=塗りつぶし
+    gStyle->SetHistLineStyle(1);    // ヒストグラムの線種 1=直線
+    gStyle->SetHistLineWidth(1);    // ヒストグラムの線幅 pixel
+    gStyle->SetPadGridX(!hideGrid); // グリッドの表示
+    gStyle->SetPadGridY(!hideGrid); // グリッドの表示
+    gStyle->SetPadTickX(1);         // 上側x軸の目盛り表示
+    gStyle->SetPadTickY(1);         // 右側y軸の目盛り表示
+    gStyle->SetStatFont(font_code);         // 統計box内のフォント
+    gStyle->SetLabelFont(font_code, "xyz"); // 軸ラベルのフォント
+    gStyle->SetTitleFont(font_code, "xyz"); // 軸titleのフォント
+    gStyle->SetTitleFont(font_code, "");    // titleのフォント
+    gStyle->SetTextFont(font_code);         // textのフォント
+    gStyle->SetLegendFont(font_code);       // 凡例のフォント
 
     // エラーメッセージ未満のROOTのメッセージを非表示に設定
     gErrorIgnoreLevel = kError;
 
     // TTreeの作成
-    std::cout << "\nStarting to read bvxx file..." << std::endl;
+    std::cout << "Starting to read bvxx file..." << std::endl;
     TTree* tree = new TTree("tree", "");
     TTree* subtree = new TTree("subtree", "");
 
@@ -304,6 +683,77 @@ int main(int argc, char* argv[])
     uint32_t NoTcount_same[72] = {0};
     double sensor_dr_sum[72] = {0.0};
     double sensor_dz_sum[72] = {0.0};
+    // bvxxファイルを読み込むためのラムダ式
+    auto readBaseTrack = [&](const vxx::base_track_t& b) {
+        ShotID1 = vxx::hts_shot_id(b.m[0].col, b.m[0].row);
+        ShotID2 = vxx::hts_shot_id(b.m[1].col, b.m[1].row);
+        ViewID1 = ShotID1 / NumberOfImager;
+        ViewID2 = ShotID2 / NumberOfImager;
+        ImagerID1 = ShotID1 % NumberOfImager;
+        ImagerID2 = ShotID2 % NumberOfImager;
+
+        x = b.x;
+        if (cutX[0] < cutX[1] && (x < cutX[0] || x > cutX[1])) return;
+
+        y = b.y;
+        if (cutY[0] < cutY[1] && (y < cutY[0] || y > cutY[1])) return;
+
+        ax = b.ax * angle_correction;
+        if (cutAx[0] < cutAx[1] && (ax < cutAx[0] || ax > cutAx[1])) return;
+
+        ay = b.ay * angle_correction;
+        if (cutAy[0] < cutAy[1] && (ay < cutAy[0] || ay > cutAy[1])) return;
+
+        tan = sqrt(ax * ax + ay * ay);
+        if (cutTan[0] < cutTan[1] && (tan < cutTan[0] || tan > cutTan[1])) return;
+
+        ph1 = static_cast<uint8_t>(b.m[0].ph * 0.0001);
+        ph2 = static_cast<uint8_t>(b.m[1].ph * 0.0001);
+        vph1 = static_cast<uint32_t>(b.m[0].ph % 10000);
+        vph2 = static_cast<uint32_t>(b.m[1].ph % 10000);
+
+        for (size_t i = 0; i < cutPHang.size() - 1; ++i) {
+            if (tan >= cutPHang[i] && tan < cutPHang[i + 1] && (ph1 + ph2) < cutPHth[i]) return;
+        }
+        for (size_t i = 0; i < cutVPHang.size() - 1; ++i) {
+            if (tan >= cutVPHang[i] && tan < cutVPHang[i + 1] && (vph1 + vph2) < cutVPHth[i]) return;
+        }
+
+        ax1 = b.m[0].ax * angle_correction_micro;
+        ay1 = b.m[0].ay * angle_correction_micro;
+        ax2 = b.m[1].ax * angle_correction_micro;
+        ay2 = b.m[1].ay * angle_correction_micro;
+
+        dax1 = ax - ax1;
+        day1 = ay - ay1;
+        dax2 = ax - ax2;
+        day2 = ay - ay2;
+        dz = b.m[1].z - b.m[0].z;
+        dx = (ax - 0.5 * (ax1 + ax2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
+        dy = (ay - 0.5 * (ay1 + ay2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
+
+        lin = sqrt(dax1 * dax1 + day1 * day1 + dax2 * dax2 + day2 * day2); // 飛跡の直線性
+        linl = sqrt(
+            ((ax * ay1 - ay * ax1) / tan) * ((ax * ay1 - ay * ax1) / tan) +
+            ((ax * ay2 - ay * ax2) / tan) * ((ax * ay2 - ay * ax2) / tan)
+        ); // 飛跡のlateral方向の直線性
+
+        uniqueViewID2.insert(ViewID2); // 視野数のカウント
+        uniqueViewID1.insert(ViewID1); // 視野数のカウント
+        NoTcount[0][ImagerID2]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+        NoTcount[1][ImagerID1]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
+
+        // 両面のmicro trackが同じImagerで検出された場合
+        if (ImagerID1 == ImagerID2) {
+            NoTcount_same[ImagerID1]++; // Imagerごとの飛跡本数カウント
+            sensor_dr_sum[ImagerID2] += sqrt(dx * dx + dy * dy); // Imagerごとの平面方向の位置ずれ
+            sensor_dz_sum[ImagerID2] += dz; // Imagerごとのz方向の位置ずれ
+        }
+
+        tree->Fill();
+
+        if ((ph1 + ph2) >= dxyz_cutPH && tan > 1.0 && tan < 1.1) subtree->Fill(); // dx, dy, dz用
+    };
 
     StderrSuppressor sup; // 標準エラー出力を抑制するためのオブジェクト
     bool readSuccess = false;
@@ -312,7 +762,7 @@ int main(int argc, char* argv[])
         sup.suppress(); // 標準エラー出力の抑制開始
         for (int pli = 0; pli < 1000; ++pli) {
             if (br.Begin(bvxxfile, pli, 0)) {
-                sup.restore(); // 見つかったら標準エラー出力の抑制を解除
+                sup.restore(); // 正しいPL番号が見つかったら標準エラー出力の抑制を解除
                 std::cout << "PL" << Form("%03d", pli) << " Loading..." << std::endl;
                 pl = pli;
 
@@ -321,55 +771,7 @@ int main(int argc, char* argv[])
 
                 while (br.NextHashEntry(h)) {
                     while (br.NextBaseTrack(b)) {
-                        ShotID1 = vxx::hts_shot_id(b.m[0].col, b.m[0].row);
-                        ShotID2 = vxx::hts_shot_id(b.m[1].col, b.m[1].row);
-                        ViewID1 = ShotID1 / NumberOfImager;
-                        ViewID2 = ShotID2 / NumberOfImager;
-                        ImagerID1 = ShotID1 % NumberOfImager;
-                        ImagerID2 = ShotID2 % NumberOfImager;
-
-                        x = b.x;
-                        y = b.y;
-                        ax = b.ax;
-                        ay = b.ay;
-                        ph1 = static_cast<uint8_t>(b.m[0].ph * 0.0001);
-                        ph2 = static_cast<uint8_t>(b.m[1].ph * 0.0001);
-                        vph1 = static_cast<uint32_t>(b.m[0].ph % 10000);
-                        vph2 = static_cast<uint32_t>(b.m[1].ph % 10000);
-                        ax1 = b.m[0].ax;
-                        ay1 = b.m[0].ay;
-                        ax2 = b.m[1].ax;
-                        ay2 = b.m[1].ay;
-
-                        dax1 = ax - ax1;
-                        day1 = ay - ay1;
-                        dax2 = ax - ax2;
-                        day2 = ay - ay2;
-                        dz = b.m[1].z - b.m[0].z;
-                        dx = (ax - 0.5 * (ax1 + ax2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
-                        dy = (ay - 0.5 * (ay1 + ay2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
-                        tan = sqrt(ax * ax + ay * ay);
-                        lin = sqrt(dax1 * dax1 + day1 * day1 + dax2 * dax2 + day2 * day2); // 飛跡の直線性
-                        linl = sqrt(
-                            ((ax * ay1 - ay * ax1) / tan) * ((ax * ay1 - ay * ax1) / tan) +
-                            ((ax * ay2 - ay * ax2) / tan) * ((ax * ay2 - ay * ax2) / tan)
-                        ); // 飛跡のlateral方向の直線性
-
-                        uniqueViewID2.insert(ViewID2); // 視野数のカウント
-                        uniqueViewID1.insert(ViewID1); // 視野数のカウント
-                        NoTcount[0][ImagerID2]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
-                        NoTcount[1][ImagerID1]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
-
-                        // 両面のmicro trackが同じImagerで検出された場合
-                        if (ImagerID1 == ImagerID2) {
-                            NoTcount_same[ImagerID1]++; // Imagerごとの飛跡本数カウント
-                            sensor_dr_sum[ImagerID2] += sqrt(dx*dx + dy*dy); // Imagerごとの平面方向の位置ずれ
-                            sensor_dz_sum[ImagerID2] += dz; // Imagerごとのz方向の位置ずれ
-                        }
-
-                        tree->Fill();
-
-                        if ((ph1+ph2)>24 && tan>1.0 && tan<1.1) subtree->Fill();
+                        readBaseTrack(b);
                     }
                 }
                 br.End();
@@ -390,55 +792,7 @@ int main(int argc, char* argv[])
 
             while (br.NextHashEntry(h)) {
                 while (br.NextBaseTrack(b)) {
-                    ShotID1 = vxx::hts_shot_id(b.m[0].col, b.m[0].row);
-                    ShotID2 = vxx::hts_shot_id(b.m[1].col, b.m[1].row);
-                    ViewID1 = ShotID1 / NumberOfImager;
-                    ViewID2 = ShotID2 / NumberOfImager;
-                    ImagerID1 = ShotID1 % NumberOfImager;
-                    ImagerID2 = ShotID2 % NumberOfImager;
-
-                    x = b.x;
-                    y = b.y;
-                    ax = b.ax;
-                    ay = b.ay;
-                    ph1 = static_cast<uint8_t>(b.m[0].ph * 0.0001);
-                    ph2 = static_cast<uint8_t>(b.m[1].ph * 0.0001);
-                    vph1 = static_cast<uint32_t>(b.m[0].ph % 10000);
-                    vph2 = static_cast<uint32_t>(b.m[1].ph % 10000);
-                    ax1 = b.m[0].ax;
-                    ay1 = b.m[0].ay;
-                    ax2 = b.m[1].ax;
-                    ay2 = b.m[1].ay;
-
-                    dax1 = ax - ax1;
-                    day1 = ay - ay1;
-                    dax2 = ax - ax2;
-                    day2 = ay - ay2;
-                    dz = b.m[1].z - b.m[0].z;
-                    dx = (ax - 0.5 * (ax1 + ax2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
-                    dy = (ay - 0.5 * (ay1 + ay2)) * dz; // microtrack1, 2をベース中央に内挿したときの位置ずれ
-                    tan = sqrt(ax * ax + ay * ay);
-                    lin = sqrt(dax1 * dax1 + day1 * day1 + dax2 * dax2 + day2 * day2); // 飛跡の直線性
-                    linl = sqrt(
-                        ((ax * ay1 - ay * ax1) / tan) * ((ax * ay1 - ay * ax1) / tan) +
-                        ((ax * ay2 - ay * ax2) / tan) * ((ax * ay2 - ay * ax2) / tan)
-                    ); // 飛跡のlateral方向の直線性
-
-                    uniqueViewID2.insert(ViewID2); // 視野数のカウント
-                    uniqueViewID1.insert(ViewID1); // 視野数のカウント
-                    NoTcount[0][ImagerID2]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
-                    NoTcount[1][ImagerID1]++; // Imagerごとの飛跡本数カウント。NoTcount[i]とLayeriが対応
-
-                    // 両面のmicro trackが同じImagerで検出された場合
-                    if (ImagerID1 == ImagerID2) {
-                        NoTcount_same[ImagerID1]++; // Imagerごとの飛跡本数カウント
-                        sensor_dr_sum[ImagerID2] += sqrt(dx*dx + dy*dy); // Imagerごとの平面方向の位置ずれ
-                        sensor_dz_sum[ImagerID2] += dz; // Imagerごとのz方向の位置ずれ
-                    }
-
-                    tree->Fill();
-
-                    if ((ph1+ph2)>24 && tan>1.0 && tan<1.1) subtree->Fill();
+                    readBaseTrack(b);
                 }
             }
             br.End();
@@ -452,7 +806,7 @@ int main(int argc, char* argv[])
 
     double elapsed_time = sw.RealTime();
     double cpu_time = sw.CpuTime();
-    std::cout << TString::Format(
+    std::cout << Form(
         "Track data successfully loaded. - Elapsed %.2f [s] (CPU: %.2f [s])", 
         elapsed_time, cpu_time
     ) << std::endl;
@@ -472,51 +826,6 @@ int main(int argc, char* argv[])
     sw.Start();
 	std::cout << " Plot start : " << Time_Now << std::endl;
 
-	// プログレスバーの初期化
-	int page = 0;
-	const int total = 40; // 合計ページ数
-	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
-
-    // カラーパレットの設定
-    MyPalette::SetPalette(Palette);
-    if (invertpalette) MyPalette::InvertPalette();
-    // カラー定義
-    Float_t r1, g1, b1, r2, g2, b2, r3, g3, b3;
-    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.15))->GetRGB(r1, g1, b1);
-    gROOT->GetColor(90)->SetRGB(r1, g1, b1);
-    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.85))->GetRGB(r3, g3, b3);
-    gROOT->GetColor(91)->SetRGB(r3, g3, b3);
-    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.5))->GetRGB(r2, g2, b2);
-    gROOT->GetColor(92)->SetRGB(r2, g2, b2);
-    gROOT->GetColor(93)->SetRGB(r2 * 0.6, g2 * 0.6, b2 * 0.6);
-    gStyle->SetHistFillColor(92);
-    gStyle->SetHistLineColor(93);
-    gStyle->SetFuncColor(93);
-    gROOT->GetColor(94)->SetRGB( 200./255., 200./255., 203./255.); // light gray
-    gStyle->SetGridColor(94);
-
-    // スタイルの設定
-    gStyle->SetPadRightMargin(0.1);      // Pad右側のマージン
-    gStyle->SetPadLeftMargin(0.1);       // Pad左側のマージン
-    gStyle->SetPadTopMargin(0.1);        // Pad上側のマージン
-    gStyle->SetPadBottomMargin(0.11);    // Pad下側のマージン
-    gStyle->SetLabelOffset(0.008,"xyz"); // 軸ラベル（数値）と軸の距離
-    gStyle->SetTitleOffset(1.1,"xyz");   // 軸titleと軸の距離
-    gStyle->SetTitleY(0.985);            // タイトルのy方向の位置
-    gStyle->SetHistFillStyle(1011); // ヒストグラム内部のパターン 1011=塗りつぶし
-    gStyle->SetHistLineStyle(1);    // ヒストグラムの線種 1=直線
-    gStyle->SetHistLineWidth(1);    // ヒストグラムの線幅 pixel
-    gStyle->SetPadGridX(showGrid); // グリッドの表示
-    gStyle->SetPadGridY(showGrid); // グリッドの表示
-    gStyle->SetPadTickX(1); // 上側x軸の目盛り表示
-    gStyle->SetPadTickY(1); // 右側y軸の目盛り表示
-    gStyle->SetStatFont(font_code);         // 統計box内のフォント
-    gStyle->SetLabelFont(font_code, "xyz"); // 軸ラベルのフォント
-    gStyle->SetTitleFont(font_code, "xyz"); // 軸titleのフォント
-    gStyle->SetTitleFont(font_code, "");    // titleのフォント
-    gStyle->SetTextFont(font_code);         // textのフォント
-    gStyle->SetLegendFont(font_code);       // 凡例のフォント
-
     // キャンバスとPDFファイルの作成
     gStyle->SetPaperSize(TStyle::kA4);
     TCanvas* c1 = new TCanvas("c1");
@@ -524,9 +833,28 @@ int main(int argc, char* argv[])
     global_c1 = c1;
     global_output = output;
 
+	// プログレスバーの初期化
+	int page = 0;
+    std::unordered_map<std::string, int> page_map = {
+        {"pos", 1}, {"pos-prj", 1}, {"ang", 1}, {"ang-prj", 1},
+        {"da", 1}, {"da-nc", 1}, {"da-rl", 2}, {"ph2d", 1},
+        {"ph1d", 10 + phvph_loop}, {"rank", std::size(ranking_params_vec)}, 
+        {"dxyz", 1}, {"dxy", 1}, {"sennot", 1}, {"sendrz", 1}
+    };
+    const int total = std::accumulate( // 合計ページ数
+        plot_list.begin(),
+        plot_list.end(),
+        0, // 初期値
+        [&page_map](int acc, const std::string& key) {
+            auto it = page_map.find(key);
+            return acc + (it != page_map.end() ? it->second : 0);
+        }
+    );
+	MyUtil::ShowProgress(page, total);
+
     // データの座標の範囲を取得し、表示範囲とビンの数を決定する
     // フィルムの長辺の端から1cm外側までを最大表示範囲とし、縦横比を正しく保って表示する
-    // 位置分布等のビン幅は1mm。dx, dy, dzのプロットは計算時間短縮のためフィルムサイズによって変える
+    // 位置分布等のビン幅は1mm。dx, dy, dzのプロットのビン幅は計算時間短縮のためフィルムサイズによって変える
     const int MinX = tree->GetMinimum("x");
     const int MaxX = tree->GetMaximum("x");
     const int MinY = tree->GetMinimum("y");
@@ -567,152 +895,180 @@ int main(int argc, char* argv[])
     }
     const double AreaParam[7] = {bin, LowX, UpX, LowY, UpY, bin_dxdydz, pitch};
 
-    position(c1, tree, pl, AreaParam, TD_range);
-    c1->Print(output.c_str()); c1->Clear();
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    if (std::find(plot_list.begin(), plot_list.end(), "pos") != plot_list.end()) {
+        position(c1, tree, pl, AreaParam, TD_range);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
 
-    position_projection(c1, tree, entries, pl, TD_range, AreaParam);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "pos-prj") != plot_list.end()) {
+        position_projection(c1, tree, entries, pl, TD_range, AreaParam);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("pos*");
     gDirectory->Delete("track_density");
-	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    angle(c1, tree, pl, angle_max, angle_resolution);
-    c1->Print(output.c_str()); c1->Clear();
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+    if (std::find(plot_list.begin(), plot_list.end(), "ang") != plot_list.end()) {
+        angle(c1, tree, pl, angle_max, angle_resolution);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
 
-    angle_projection(c1, tree, pl, angle_max, angle_resolution);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "ang-prj") != plot_list.end()) {
+        angle_projection(c1, tree, pl, angle_max, angle_resolution);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("ang*");
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    d_angle(c1, tree);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "da") != plot_list.end()) {
+        d_angle(c1, tree);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("*a*");
-	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    d_angle_Ncut(c1, tree, da_cutX, da_cutY, da_cutPH);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "da-nc") != plot_list.end()) {
+        d_angle_Ncut(c1, tree, da_cutX, da_cutY, da_cutPH);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("*a*");
-	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 1);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "da-rl") != plot_list.end()) {
+        d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 1);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("*a*");
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 2);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "da-rl") != plot_list.end()) {
+        d_angle_rl(c1, tree, angle_max, dlat_range, drad_range, 2);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("*a*");
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    phvph_2D(c1, tree, vph_range, angle_max, angle_resolution);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "ph2d") != plot_list.end()) {
+        phvph_2D(c1, tree, vph_range, angle_max, angle_resolution);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("*ph*");
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    for (int i = 0; i < 10; ++i) // 0.0-0.1 ~ 0.9-1.0
-    {
-        phvph_1D(c1, tree, vph_range, i, 0.1);
+    if (std::find(plot_list.begin(), plot_list.end(), "ph1d") != plot_list.end()) {
+        for (int i = 0; i < 10; ++i) // 0.0-0.1 ~ 0.9-1.0
+        {
+            phvph_1D(c1, tree, vph_range, i, 0.1);
+            c1->Print(output.c_str()); c1->Clear();
+            gDirectory->Delete("*ph*");
+            MyUtil::ShowProgress(page, total);
+        }
+        for (int i = 2; i < phvph_loop; ++i) // 1.0-1.1 ~
+        {
+            phvph_1D(c1, tree, vph_range, i, 0.5);
+            c1->Print(output.c_str()); c1->Clear();
+            gDirectory->Delete("*ph*");
+            MyUtil::ShowProgress(page, total);
+        }
+    }
+
+    if (std::find(plot_list.begin(), plot_list.end(), "rank") != plot_list.end()) {
+        // ランキングプロットにおけるy軸(VPH)の描画範囲の基準値vph_standardを決定
+        if (vph_standard < 0) { // vph_standardが指定されていない場合
+            uint32_t range = 200;
+            uint32_t range_min = 65;
+            uint32_t range_max = 260;
+            uint32_t vph_entries = 10000;
+            uint32_t vph_mean = 0;
+            uint32_t vph_sigma = 40;
+            uint8_t cut_type = 0;
+            TH1D* vph_temp = new TH1D("vph_temp", "vph_temp", 51, 15, 270);
+            TCut cutvph_temp;
+
+            do {
+                range_min -= 5;
+                if (range_min < 60) {
+                    vph_entries = vph_temp->GetEntries();
+                    vph_sigma = vph_temp->GetStdDev();
+                    range = vph_sigma * 3;
+                    if (vph_entries < 1000) cut_type = 1;
+                }
+
+                range_max = range_min + range;
+
+                if (cut_type == 0) {
+                    cutvph_temp = Form(
+                    "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.03 && lin<0.05"
+                    "&& dax1<0.02 && dax2<0.02 && day1<0.02 && day2<0.02", 
+                    range_min, range_max
+                    );
+                } else {
+                    cutvph_temp = Form(
+                    "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.08 && lin<0.10"
+                    "&& dax1<0.02 && dax2<0.02 && day1<0.02 && day2<0.02", 
+                    range_min, range_max
+                    );
+                }
+                tree->Draw("(vph1+vph2)>>vph_temp", cutvph_temp, "goff");
+                vph_mean = vph_temp->GetMean();
+                if (range_min < 15) break;
+            } while (vph_mean < range_min + 0.5 * vph_sigma);
+
+            TF1* gaus = new TF1("gaus", "gaus", 0.0, 1000.0);
+            vph_temp->Fit("gaus", "q 0", "", range_min, vph_mean + vph_sigma);
+            vph_standard = gaus->GetParameter(1) + 5;
+            if (vph_standard < ranking_vph_min) vph_standard = ranking_vph_min;
+            gDirectory->Delete("vph_temp");
+            delete gaus;
+        }
+
+        for (const auto& params : ranking_params_vec) {
+            ranking(c1, tree, params, vph_standard);
+            c1->Print(output.c_str()); c1->Clear();
+            gDirectory->Delete("rank*");
+            MyUtil::ShowProgress(page, total);
+        }
+    }
+
+    if (std::find(plot_list.begin(), plot_list.end(), "dxyz") != plot_list.end()) {
+        dxdydz(c1, subtree, AreaParam);
         c1->Print(output.c_str()); c1->Clear();
-        gDirectory->Delete("*ph*");
-        MyUtil::ShowProgress(page, static_cast<double>(page) / total);
+        MyUtil::ShowProgress(page, total);
     }
-
-    const int phvph_loop = static_cast<int>((angle_max - 0.1) * 2) + 2;
-    for (int i = 2; i < phvph_loop; ++i) // 1.0-1.1 ~
-    {
-        phvph_1D(c1, tree, vph_range, i, 0.5);
-        c1->Print(output.c_str()); c1->Clear();
-        gDirectory->Delete("*ph*");
-        MyUtil::ShowProgress(page, static_cast<double>(page) / total);
-    }
-
-    // ランキングプロットにおけるy軸(VPH)の描画範囲の基準値vph_standardを決定
-    if (vph_standard < 0) { // vph_standardが指定されていない場合
-        uint32_t range = 200;
-        uint32_t range_min = 65;
-        uint32_t range_max = 260;
-        uint32_t vph_entries = 10000;
-        uint32_t vph_mean = 0;
-        uint32_t vph_sigma = 40;
-        uint8_t cut_type = 0;
-        TH1D* vph_temp = new TH1D("vph_temp", "vph_temp", 51, 15, 270);
-        TCut cutvph_temp;
-
-        do {
-            range_min -= 5;
-            if (range_min < 60) {
-                vph_entries = vph_temp->GetEntries();
-                vph_sigma = vph_temp->GetStdDev();
-                range = vph_sigma * 3;
-                if (vph_entries < 1000) cut_type = 1;
-            }
-
-            range_max = range_min + range;
-
-            if (cut_type == 0) {
-                cutvph_temp = Form(
-                "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.03 && lin<0.05"
-                "&& dax1<0.02 && dax2<0.02 && day1<0.02 && day2<0.02", 
-                range_min, range_max
-                );
-            } else {
-                cutvph_temp = Form(
-                "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.08 && lin<0.10"
-                "&& dax1<0.02 && dax2<0.02 && day1<0.02 && day2<0.02", 
-                range_min, range_max
-                );
-            }
-            tree->Draw("(vph1+vph2)>>vph_temp", cutvph_temp, "goff");
-            vph_mean = vph_temp->GetMean();
-            if (range_min < 15) break;
-        } while (vph_mean < range_min + 0.5 * vph_sigma);
-
-        TF1* gaus = new TF1("gaus", "gaus", 0.0, 1000.0);
-        vph_temp->Fit("gaus", "q 0", "", range_min, vph_mean + vph_sigma);
-        vph_standard = gaus->GetParameter(1) + 5;
-        if (vph_standard < ranking_vph_min) vph_standard = ranking_vph_min;
-        gDirectory->Delete("vph_temp");
-        delete gaus;
-    }
-
-    for (const auto& params : ranking_params_array) {
-        ranking(c1, tree, params, vph_standard);
-        c1->Print(output.c_str()); c1->Clear();
-        gDirectory->Delete("rank*");
-        MyUtil::ShowProgress(page, static_cast<double>(page) / total);
-    }
-
-    dxdydz(c1, subtree, AreaParam);
-    c1->Print(output.c_str()); c1->Clear();
     gDirectory->Delete("*_temp");
     gDirectory->Delete("dz*");
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    dxdy(c1, subtree, AreaParam);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "dxy") != plot_list.end()) {
+        dxdy(c1, subtree, AreaParam);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("d*");
-	MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
     gDirectory->Delete("subtree");
 
-    sensor_not(c1, fieldsOfView, NoTcount);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "sennot") != plot_list.end()) {
+        sensor_not(c1, fieldsOfView, NoTcount);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("not*");
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
-    sensor_drdz(c1, NoTcount_same, sensor_dr_sum, sensor_dz_sum);
-    c1->Print(output.c_str()); c1->Clear();
+    if (std::find(plot_list.begin(), plot_list.end(), "sendrz") != plot_list.end()) {
+        sensor_drdz(c1, NoTcount_same, sensor_dr_sum, sensor_dz_sum);
+        c1->Print(output.c_str()); c1->Clear();
+        MyUtil::ShowProgress(page, total);
+    }
     gDirectory->Delete("dz*");
-    MyUtil::ShowProgress(page, static_cast<double>(page) / total);
 
     gDirectory->Delete("sersor_array");
 
     // PDFファイルを閉じる
     c1->Print((output + "]").c_str());
 	if (page < total) page = total;
-    MyUtil::ShowProgress(page, 1.0);
+    MyUtil::ShowProgress(page, total);
 
     // プロット終了
     time_now.Set();
@@ -723,7 +1079,7 @@ int main(int argc, char* argv[])
     );
     elapsed_time = sw.RealTime();
     cpu_time = sw.CpuTime();
-    std::cout << TString::Format(
+    std::cout << Form(
         "\n Plot end   : %s - Elapsed %.2f [s] (CPU: %.2f [s])", 
         Time_Now.Data(), elapsed_time, cpu_time
     ) << std::endl;
@@ -763,6 +1119,7 @@ void position(TCanvas *c1, TTree *tree, int pl, const double *AreaParam, const s
 	pos_lg->SetFillStyle(0);
 	pos_lg->SetBorderSize(0);
 	pos_lg->SetTextSize(0.04);
+    pos_lg->SetTextColor(global_darkmode ? 0 : 1);
 	pos_lg->AddEntry(position_2D, Form("Entries %.0f", position_2D->GetEntries()), "");
 	pos_lg->Draw();
 }
@@ -800,6 +1157,7 @@ void position_projection(
         pos_lg->SetFillStyle(0);
         pos_lg->SetBorderSize(0);
         pos_lg->SetTextSize(0.04);
+        pos_lg->SetTextColor(global_darkmode ? 0 : 1);
         pos_lg->AddEntry(position_2D, Form("Entries %.0f", position_2D->GetEntries()), "");
     }
 
@@ -835,6 +1193,9 @@ void position_projection(
         min_density = TD_range[0];
         max_density = TD_range[1];
     }
+    // ビン幅と合っていないと範囲設定が正しくできないため調整する
+    min_density = std::floor(min_density / 10.0) * 10.0; // 10の倍数に切り下げ(10はビン幅)
+    max_density = std::ceil(max_density / 10.0) * 10.0;  // 10の倍数に切り上げ(10はビン幅)
     track_density->GetXaxis()->SetRangeUser(min_density, max_density);
     track_density->SetFillStyle(0);
     track_density->SetLineWidth(2);
@@ -848,6 +1209,7 @@ void position_projection(
     density_lg->SetFillStyle(0);
     density_lg->SetBorderSize(0);
     density_lg->SetTextSize(0.04);
+    density_lg->SetTextColor(global_darkmode ? 0 : 1);
     density_lg->AddEntry(track_density, "Track Density [/mm^{2}]", "");
     density_lg->AddEntry(track_density, Form("%d areas", density_entries), "");
     density_lg->AddEntry(track_density, Form("Mean   %.2f", density_mean), "");
@@ -880,6 +1242,7 @@ void angle(TCanvas *c1, TTree *tree, int pl, const double angle_max, const doubl
 	ang_lg->SetFillStyle(0);
 	ang_lg->SetBorderSize(0);
 	ang_lg->SetTextSize(0.04);
+    ang_lg->SetTextColor(global_darkmode ? 0 : 1);
 	ang_lg->AddEntry(angle_2D, Form("Entries %.0f", angle_2D->GetEntries()), "");
 	ang_lg->Draw();
 }
@@ -901,7 +1264,7 @@ void angle_projection(TCanvas *c1, TTree *tree, int pl, const double angle_max, 
         TString angtitle = Form(
             "Angle PL%03d;tan#it{#theta}_{x};tan#it{#theta}_{y};/(%g rad)^{2}", pl, angle_resolution
         );
-        TH2D* angle_2D = new TH2D(
+        angle_2D = new TH2D(
             "angle_2D", angtitle, angle_bin, -angle_max, angle_max, angle_bin, -angle_max, angle_max
         );
         tree->Draw("ay:ax >> angle_2D", "", "goff");
@@ -910,6 +1273,7 @@ void angle_projection(TCanvas *c1, TTree *tree, int pl, const double angle_max, 
         ang_lg->SetFillStyle(0);
         ang_lg->SetBorderSize(0);
         ang_lg->SetTextSize(0.04);
+        ang_lg->SetTextColor(global_darkmode ? 0 : 1);
         ang_lg->AddEntry(angle_2D, Form("Entries %.0f", angle_2D->GetEntries()), "");
     }
 
@@ -940,6 +1304,7 @@ void angle_projection(TCanvas *c1, TTree *tree, int pl, const double angle_max, 
 	ang_lg2->SetFillStyle(0);
 	ang_lg2->SetBorderSize(0);
 	ang_lg2->SetTextSize(0.04);
+    ang_lg2->SetTextColor(global_darkmode ? 0 : 1);
 	ang_lg2->AddEntry(angle_1D, Form("Entries %.0f", angle_1D->GetEntries()), "");
 	ang_lg2->Draw();
 }
@@ -1160,13 +1525,13 @@ void phvph_2D(
         3, "phs2", "PH2;tan#it{#theta};PH2", "ph2", 11, 5.5, 16.5, 11
     );
     createAndDraw2DHistogram(
-        4, "vphs0", "VPHsum;tan#it{#theta};VPHsum", "(vph1+vph2)", 2 * vph_range, 0.5, 2 * vph_range + 0.5, 10
+        4, "vphs0", "VPHsum;tan#it{#theta};VPHsum", "(vph1+vph2)", vph_range, 0.5, vph_range + 0.5, 10
     );
     createAndDraw2DHistogram(
-        5, "vphs1", "VPH1;tan#it{#theta};VPH1", "vph1", vph_range, 0.5, vph_range + 0.5, 10
+        5, "vphs1", "VPH1;tan#it{#theta};VPH1", "vph1", 0.5 * vph_range, 0.5, 0.5 * vph_range + 0.5, 10
     );
     createAndDraw2DHistogram(
-        6, "vphs2", "VPH2;tan#it{#theta};VPH2", "vph2", vph_range, 0.5, vph_range + 0.5, 10
+        6, "vphs2", "VPH2;tan#it{#theta};VPH2", "vph2", 0.5 * vph_range, 0.5, 0.5 * vph_range + 0.5, 10
     );
 }
 
@@ -1196,6 +1561,7 @@ void phvph_1D(TCanvas *c1, TTree *tree, const int vph_range, const uint8_t i, co
         lg->SetFillStyle(0);
         lg->SetBorderSize(0);
         lg->SetTextSize(0.04);
+        lg->SetTextColor(global_darkmode ? 0 : 1);
         lg->AddEntry(hist, Form("Entries    %.0f", hist->GetEntries()), "");
         lg->AddEntry(hist, Form("Mean      %.1f", hist->GetMean()), "");
         lg->Draw();
@@ -1211,12 +1577,12 @@ void phvph_1D(TCanvas *c1, TTree *tree, const int vph_range, const uint8_t i, co
     createAndDrawHistogram(3, "ph2", "PH2", "ph2", 16, 0.5, 16.5, legendCoords1);
 
     // VPHsum, VPH1, VPH2
-    createAndDrawHistogram(4, "vphsum", "VPHsum", "vph1+vph2", 2 * vph_range, 0, 2 * vph_range, legendCoords2);
-    createAndDrawHistogram(5, "vph1", "VPH1", "vph1", vph_range, 0, vph_range, legendCoords2);
-    createAndDrawHistogram(6, "vph2", "VPH2", "vph2", vph_range, 0, vph_range, legendCoords2);
+    createAndDrawHistogram(4, "vphsum", "VPHsum", "vph1+vph2", vph_range, 0, vph_range, legendCoords2);
+    createAndDrawHistogram(5, "vph1", "VPH1", "vph1", 0.5 * vph_range, 0, 0.5 * vph_range, legendCoords2);
+    createAndDrawHistogram(6, "vph2", "VPH2", "vph2", 0.5 * vph_range, 0, 0.5 * vph_range, legendCoords2);
 }
 
-void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_t vph_standard) noexcept
+void ranking(TCanvas *c1, TTree *tree, const std::vector<RankingParams> &params, uint32_t vph_standard) noexcept
 {
     gStyle->SetOptStat("e");
     gStyle->SetStatFormat("6.2f");
@@ -1254,9 +1620,9 @@ void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_
             50,
             0.0,
             param.xy_lin_max,
-            static_cast<int>(vph_standard + param.vph_max_plus),
+            static_cast<int>(vph_standard + param.vph_standard_plus),
             0.0,
-            static_cast<double>(vph_standard + param.vph_max_plus)
+            static_cast<double>(vph_standard + param.vph_standard_plus)
         );
         tree->Draw("(vph1+vph2):lin >> rank", range, "colz");
 
@@ -1274,9 +1640,9 @@ void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_
             50,
             0.0,
             param.lat_lin_max,
-            static_cast<int>(vph_standard + param.vph_max_plus),
+            static_cast<int>(vph_standard + param.vph_standard_plus),
             0.0,
-            static_cast<double>(vph_standard + param.vph_max_plus)
+            static_cast<double>(vph_standard + param.vph_standard_plus)
         );
         rankl->GetXaxis()->SetNdivisions(505);
         tree->Draw("(vph1+vph2):linl >> rankl", range, "colz");
@@ -1420,6 +1786,7 @@ void dxdydz(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept
     dz_lg->SetFillStyle(0);
     dz_lg->SetBorderSize(0);
     dz_lg->SetTextSize(0.04);
+    dz_lg->SetTextColor(global_darkmode ? 0 : 1);
     dz_lg->AddEntry(dz_1D, Form("Areas      %.0f", dz_1D->GetEntries()), "");
     dz_lg->AddEntry(dz_1D, Form("Mean      %.2f [#mum]", dz_1D_mean), "");
     dz_lg->AddEntry(dz_1D, Form("Std Dev   %.2f [#mum]", dz_1D->GetStdDev()), "");
@@ -1544,18 +1911,13 @@ void dxdy(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept
         hist->SetFillStyle(0);
         hist->SetLineWidth(2);
         hist->Draw();
-        int hist_bin_min = hist->FindFixBin(hist_min);
-        int hist_bin_max = hist->FindFixBin(hist_max);
-        for (int i = hist_bin_min; i <= hist_bin_max; ++i) {
-            if (hist->GetBinContent(i) == 0) continue;
-            int ci = gStyle->GetColorPalette(256 * (hist->GetBin(i) - hist_bin_min) / (hist_bin_max - hist_bin_min));
-            MyUtil::PaintBin(hist, i, ci);
-        }
+        MyUtil::PaintBins(hist, hist_min, hist_max); // 各ビンをカラーパレットの色で塗る
 
         TLegend* legend = new TLegend(legend_x1, legend_y1, legend_x2, legend_y2);
         legend->SetFillStyle(0);
         legend->SetBorderSize(0);
         legend->SetTextSize(0.04);
+        legend->SetTextColor(global_darkmode ? 0 : 1);
         legend->AddEntry(hist, Form("Areas      %.0f", hist->GetEntries()), "");
         legend->AddEntry(hist, Form("Mean      %.2f [#mum]", hist->GetMean()), "");
         legend->AddEntry(hist, Form("Std Dev   %.2f [#mum]", hist->GetStdDev()), "");
@@ -1646,8 +2008,11 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
     double not1_5sigma = 5 * not1_1D->GetStdDev();
     double not1_range[2] = {not1_mean - not1_5sigma, not1_mean + not1_5sigma};
     double not_range[2] = {std::min(not0_range[0], not1_range[0]), std::max(not0_range[1], not1_range[1])};
+    // 範囲がビン幅と合っていないと1Dヒストグラムの設定が正しくできないため調整する
+    not_range[0] = std::floor(not_range[0] / 5.0) * 5.0; // 5の倍数に切り下げ(5は1Dヒストグラムのビン幅)
+    not_range[1] = std::ceil(not_range[1] / 5.0) * 5.0;  // 5の倍数に切り上げ(5は1Dヒストグラムのビン幅)
 
-    // 2Dヒストグラムを作成して描画するためのラムダ式
+    // 2Dヒストグラムを描画するためのラムダ式
     auto configure2DHistogram = [&](TH2D* hist, int pad) {
         c1->cd(pad);
         gPad->SetGrid(0, 0);
@@ -1665,7 +2030,7 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
         sensor_array->Draw("same text");
     };
 
-    // グラフを作成して描画するためのラムダ式
+    // グラフを描画するためのラムダ式
     auto configureGraph = [&](TGraph* graph, TPad* pad, const char* title) {
         pad->cd();
         graph->GetYaxis()->SetTitleOffset(1.9);
@@ -1680,13 +2045,13 @@ void sensor_not(TCanvas *c1, const int fieldsOfView[2], const uint32_t NoTcount[
         graph->Draw("a p l");
     };
 
-    // 1Dヒストグラムを作成して描画するためのラムダ式
+    // 1Dヒストグラムを描画するためのラムダ式
     auto configure1DHistogram = [&](TH1D* hist, TPad* pad) {
         pad->cd();
         hist->GetXaxis()->SetRangeUser(not_range[0], not_range[1]);
         hist->GetYaxis()->SetNdivisions(5);
         hist->SetTitle("");
-        hist->SetLabelColor(0, "xy");
+        hist->SetLabelColor(global_darkmode ? 1 : 0, "xy");
         hist->SetFillColor(93);
         hist->Draw("hbar");
     };
@@ -1786,11 +2151,17 @@ void sensor_drdz(
     double dr_mean = dr_1D->GetMean();
     double dr_5sigma = 5 * dr_1D->GetStdDev();
     double dr_range[2] = {dr_mean - dr_5sigma, dr_mean + dr_5sigma};
+    // 範囲がビン幅と合っていないと1Dヒストグラムの設定が正しくできないため調整する
+    dr_range[0] = std::floor(dr_range[0] / 0.05) * 0.05; // 0.05の倍数に切り下げ(0.05は1Dヒストグラムのビン幅)
+    dr_range[1] = std::ceil(dr_range[1] / 0.05) * 0.05;  // 0.05の倍数に切り上げ(0.05は1Dヒストグラムのビン幅)
     double dz_mean = dz_1D->GetMean();
     double dz_5sigma = 5 * dz_1D->GetStdDev();
     double dz_range[2] = {dz_mean - dz_5sigma, dz_mean + dz_5sigma};
+    // 範囲がビン幅と合っていないと1Dヒストグラムの設定が正しくできないため調整する
+    dz_range[0] = std::floor(dz_range[0] / 0.01) * 0.01; // 0.01の倍数に切り下げ(0.01は1Dヒストグラムのビン幅)
+    dz_range[1] = std::ceil(dz_range[1] / 0.01) * 0.01;  // 0.01の倍数に切り上げ(0.01は1Dヒストグラムのビン幅)
 
-    // 2Dヒストグラムを作成して描画するためのラムダ式
+    // 2Dヒストグラムを描画するためのラムダ式
     auto configure2DHistogram = [&](TH2D* hist, int pad, const double range[2]) {
         c1->cd(pad);
         gPad->SetGrid(0, 0);
@@ -1808,7 +2179,7 @@ void sensor_drdz(
         sensor_array->Draw("same text");
     };
 
-    // グラフを作成して描画するためのラムダ式
+    // グラフを描画するためのラムダ式
     auto configureGraph = [&](TGraph* graph, TPad* pad, const char* title, const double offset, const double range[2]) {
         pad->cd();
         graph->GetYaxis()->SetTitleOffset(offset);
@@ -1823,13 +2194,13 @@ void sensor_drdz(
         graph->Draw("a p l");
     };
 
-    // 1Dヒストグラムを作成して描画するためのラムダ式
+    // 1Dヒストグラムを描画するためのラムダ式
     auto configure1DHistogram = [&](TH1D* hist, TPad* pad, const double range[2]) {
         pad->cd();
         hist->GetXaxis()->SetRangeUser(range[0], range[1]);
         hist->GetYaxis()->SetNdivisions(5);
         hist->SetTitle("");
-        hist->SetLabelColor(0, "xy");
+        hist->SetLabelColor(global_darkmode ? 1 : 0, "xy");
         hist->SetFillColor(93);
         hist->Draw("hbar");
     };

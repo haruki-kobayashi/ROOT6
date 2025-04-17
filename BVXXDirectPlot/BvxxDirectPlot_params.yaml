@@ -1,0 +1,130 @@
+# input_bvxx,  output, pl_number, param_file の4種類の引数はパラメータファイルでは指定できない
+# パラメータファイルとコマンドライン引数の両方で指定した場合、コマンドライン引数が優先される
+# ranking_params_array はパラメータファイルでのみ指定できる
+
+# プロット対象を絞る
+on_plot: []
+# プロット対象から除外する
+off_plot: []
+
+# フォント番号 (参照: https://root.cern.ch/doc/master/classTAttText.html)
+# 4: Helvertica, 13: Times, 6: Helvetica-Bold, 2: Times-Bold
+font_number: 4
+
+# グリッドの非表示
+hide_grid: false
+
+# 黒背景
+dark_mode: false
+
+# カラーパレット (参照: https://root.cern.ch/doc/master/classTColor.html)
+# - 元々のROOTのプリセットに加え、以下のカスタムパレットが使える。
+# - kBirdDark (kBirdを元にプロジェクターなどで白飛びしないよう少し暗くしたもの),
+#   kBlueWhiteRed, kBlueBlackRed, kGreenWhiteMagenta, kGreenBlackMagenta (中央が完全な白/黒のパレット),
+#   kLegacy (ROOT5のデフォルトに近づけたい場合はこれを選んでcontours: 20にする)
+palette: kBird
+# カラーパレットの色数
+contours: 256
+# カラーパレットの上下を反転
+invert_palette: false
+# カラーパレットの色を反転 (ネガポジ反転)
+negate_palette: false
+
+# 指定した範囲内のデータのみを読み込んでプロットする (元のファイルには影響しない)
+# - cut_x: [x_min, x_max] のように指定する。cut_*[0] >= cut_*[1] の場合は無視される。
+# - 例: cut_x: [100000, 150000] を指定すると100000 <= x <= 150000 のデータのみを読み込む
+# - tan はbasetrackの角度 sqrt(ax*ax + ay*ay) である
+cut_x: [0.0, 0.0]
+cut_y: [0.0, 0.0]
+cut_ax: [0.0, 0.0]
+cut_ay: [0.0, 0.0]
+cut_tan: [0.0, 0.0]
+
+# 角度(の上限)ごとにPH, VPHの閾値を指定し、閾値を超えるデータのみを読み込んでプロットする
+# - cut_ph_angle: [angle1, angle2, ...], cut_ph_threshold: [threshold1, threshold2, ...] のように指定する。
+# - 例えば、cut_ph_angle: [0.1, 0.2, 0.5] cut_ph_threshold: [20, 18, 16] を指定すると、
+#   tanθ < 0.1 は PH >= 20, 0.1 <= tanθ < 0.2 は PH >= 18, 0.2 <= tanθ < 0.5 は PH >= 16
+#   のデータのみを読み込む (tanθはbasetrackの角度 sqrt(ax*ax + ay*ay))
+# - cut_*_angle, cut_*_threshold の要素数は同じでなければならない
+cut_ph_angle: [0.0]
+cut_ph_threshold: [0]
+cut_vph_angle: [0.0]
+cut_vph_threshold: [0]
+
+# basetrackの角度に係数をかける (1.0なら変化しない)
+# - 例えば、angle_correction: 0.951 を指定すると、
+#   ax = 1.0, ay = 1.0のbasetrackはax = 0.951, ay = 0.951として扱われる
+angle_correction: 1.0
+# 上記と同様にmicrotrackの角度に係数をかける (1.0なら変化しない)
+angle_correction_micro: 1.0
+
+# pos のz軸, pos-prj のx軸の範囲を指定する
+# - ただし既定のビン幅 (10 /mm^2) の整数倍に自動調整するため、半端な値でプロットすることはできない
+track_density_range: [0, 0]
+
+# ang, ang-prj, da-rl, ph2d, ph1d のプロット範囲をtanθの最大値で指定する
+angle_max: 6.0
+# ang, ang-prj のビン幅を指定する (tanθ)
+angle_resolution: 0.1
+
+# da-nc のノイズカットの閾値を指定する
+# - プロットするdaxi, dayiと反対の面のdaxi, dayiが、傾き ± da_cut_slope, y切片 ± da_cut_interceptの
+#   y軸を跨がない4本の線分で決まる閾値を超えた飛跡がカットされる
+# - カットしすぎると傾いていてもわからなくなるので注意
+# - PHカットは da_cut_ph を元に両面ともにかける (>= da_cut_ph が残る)
+da_cut_slope: 0.08
+da_cut_intercept: 0.02
+da_cut_ph: 9
+
+# da-rl のy軸の範囲を指定する
+dlat_range: 0.05
+drad_range: 1.0
+
+# ph1d, ph2d のVPHのプロット範囲を指定する (両面のVPHの最大値, 片面はこの値の半分になる)
+vph_range: 200
+
+# rank のy軸の範囲の下限を指定する。vph_standard が自動判定(-1)のときのみ意味がある。
+ranking_vph_min: 30
+# rank のy軸の範囲の基準を指定する
+# - vph_standard_plus はこの値に加算される値であり、角度ごとのVPHの表示範囲を
+#   相対値で表示するためのものである (ThrBinary と ThrBinaryPlus の関係のようなもの)
+# - -1 の場合は自動判定、0以上の場合はこの値を基準にする
+# - 自動判定ではtanθ = 1.5のときの(Fitted Mean + 5)をvph_standardに設定しているが、ノイズが多いとMeanが0付近に
+#   なることがあるためranking_vph_minで下限値を決めている
+# - 0にすれば vph_standard_plus の値がそのままy軸の範囲になる
+vph_standard: -1
+
+# rank の設定
+# - 1ページにつき角度範囲を3つまで指定する
+# - rank のページ数や角度範囲はこの配列で決まる
+# - tan_low, tan_up は角度の範囲を指定する (tanθ)
+# - vph_standard_plus は vph_standard に加算される値であり、y軸のプロット範囲を決める
+# - xy_lin_max はxyカット、lat_lin_max はlateralカットのx軸の最大値をそれぞれ指定する
+ranking_params:
+  - # 1ページ目
+    - { tan_low: 0.0, tan_up: 0.1, vph_standard_plus: 120, xy_lin_max: 0.10, lat_lin_max: 0.05 }
+    - { tan_low: 0.1, tan_up: 0.2, vph_standard_plus: 70, xy_lin_max: 0.10, lat_lin_max: 0.05 }
+    - { tan_low: 0.2, tan_up: 0.3, vph_standard_plus: 45, xy_lin_max: 0.10, lat_lin_max: 0.05 }
+  - # 2ページ目
+    - { tan_low: 0.3, tan_up: 0.4, vph_standard_plus: 25, xy_lin_max: 0.14, lat_lin_max: 0.05 }
+    - { tan_low: 0.4, tan_up: 0.5, vph_standard_plus: 20, xy_lin_max: 0.15, lat_lin_max: 0.05 }
+    - { tan_low: 0.5, tan_up: 0.6, vph_standard_plus: 15, xy_lin_max: 0.15, lat_lin_max: 0.05 }
+  - # 3ページ目
+    - { tan_low: 0.6, tan_up: 0.7, vph_standard_plus: 10, xy_lin_max: 0.20, lat_lin_max: 0.05 }
+    - { tan_low: 0.7, tan_up: 0.8, vph_standard_plus: 0, xy_lin_max: 0.20, lat_lin_max: 0.05 }
+    - { tan_low: 0.8, tan_up: 0.9, vph_standard_plus: 0, xy_lin_max: 0.20, lat_lin_max: 0.05 }
+  - # 4ページ目
+    - { tan_low: 0.9, tan_up: 1.0, vph_standard_plus: 0, xy_lin_max: 0.25, lat_lin_max: 0.05 }
+    - { tan_low: 1.0, tan_up: 1.1, vph_standard_plus: 0, xy_lin_max: 0.30, lat_lin_max: 0.05 }
+    - { tan_low: 1.1, tan_up: 1.3, vph_standard_plus: 0, xy_lin_max: 0.35, lat_lin_max: 0.05 }
+  - # 5ページ目
+    - { tan_low: 1.3, tan_up: 1.5, vph_standard_plus: 0, xy_lin_max: 0.35, lat_lin_max: 0.05 }
+    - { tan_low: 1.5, tan_up: 2.0, vph_standard_plus: 0, xy_lin_max: 0.50, lat_lin_max: 0.05 }
+    - { tan_low: 2.0, tan_up: 2.5, vph_standard_plus: 0, xy_lin_max: 0.60, lat_lin_max: 0.05 }
+  - # 6ページ目
+    - { tan_low: 2.5, tan_up: 3.0, vph_standard_plus: 0, xy_lin_max: 0.70, lat_lin_max: 0.05 }
+    - { tan_low: 3.0, tan_up: 4.0, vph_standard_plus: 0, xy_lin_max: 0.90, lat_lin_max: 0.05 }
+    - { tan_low: 4.0, tan_up: 5.0, vph_standard_plus: 0, xy_lin_max: 1.00, lat_lin_max: 0.05 }
+
+# dx, dy, dz のプロットに使う飛跡のPH sumの閾値を指定する。あまり低くすると計算時間が増大する
+dxyz_cut_ph: 24

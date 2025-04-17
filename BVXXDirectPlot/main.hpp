@@ -6,7 +6,7 @@
 struct RankingParams {
     double tan_low;
     double tan_up;
-    uint32_t vph_max_plus;
+    uint32_t vph_standard_plus;
     double xy_lin_max;
     double lat_lin_max;
 };
@@ -37,7 +37,7 @@ void phvph_2D(
 
 void phvph_1D(TCanvas *c1, TTree *tree, const int vph_range, const uint8_t i, const double interval) noexcept;
 
-void ranking(TCanvas *c1, TTree *tree, const RankingParams (&params)[3], uint32_t vph_standard) noexcept;
+void ranking(TCanvas *c1, TTree *tree, const std::vector<RankingParams> &params, uint32_t vph_standard) noexcept;
 
 void dxdydz(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept;
 

@@ -1,28 +1,30 @@
 #pragma once
 
 #include <TColor.h>
-#include <variant>
 
 namespace MyPalette {
     enum class Palette {
         kBirdDark = 114,
-        kRedWhiteBlue = 115,
-        kRedBlackBlue = 116,
-        kMagentaWhiteGreen = 117,
-        kMagentaBlackGreen = 118,
+        kBlueWhiteRed = 115,
+        kBlueBlackRed = 116,
+        kGreenWhiteMagenta = 117,
+        kGreenBlackMagenta = 118,
         kLegacy = 119,
     };
 
     struct PaletteData {
-        uint32_t Number = 0;
-        double* Red = nullptr;
-        double* Green = nullptr;
-        double* Blue = nullptr;
-        double* Stops = nullptr;
-        uint32_t NContours = 256U;
+        size_t size = 0;
+        std::vector<double> Red;
+        std::vector<double> Green;
+        std::vector<double> Blue;
+        std::vector<double> Stops;
     };
 
-    void SetPalette(std::variant<int, std::string, Palette, EColorPalette> palette, uint32_t NContours = 256U);
-    void InvertPalette();
     int CreateCustomPalette(PaletteData& data);
+    void InvertPalette();
+    void NegatePalette();
+    void SetPalette(int palette, uint32_t NContours = 256U);
+    void SetPalette(std::string palette, uint32_t NContours = 256U);
+    void SetPalette(Palette palette, uint32_t NContours = 256U);
+    void SetPalette(EColorPalette palette, uint32_t NContours = 256U);
 }
