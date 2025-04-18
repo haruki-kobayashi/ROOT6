@@ -89,8 +89,8 @@ ranking_vph_min: 30
 # - vph_standard_plus はこの値に加算される値であり、角度ごとのVPHの表示範囲を
 #   相対値で表示するためのものである (ThrBinary と ThrBinaryPlus の関係のようなもの)
 # - -1 の場合は自動判定、0以上の場合はこの値を基準にする
-# - 自動判定ではtanθ = 1.5のときの(Fitted Mean + 5)をvph_standardに設定しているが、ノイズが多いとMeanが0付近に
-#   なることがあるためranking_vph_minで下限値を決めている
+# - 自動判定ではtanθ ~ 1.0, 直線性 0.03 ~ 0.05 における Fitted Mean をvph_standardに設定しているが、
+#   ノイズが多いとMeanが0付近になることがあるためranking_vph_minで下限値を決めている
 # - 0にすれば vph_standard_plus の値がそのままy軸の範囲になる
 vph_standard: -1
 

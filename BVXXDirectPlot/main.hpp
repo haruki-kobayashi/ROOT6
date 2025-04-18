@@ -6,7 +6,7 @@
 struct RankingParams {
     double tan_low;
     double tan_up;
-    uint32_t vph_standard_plus;
+    int vph_standard_plus;
     double xy_lin_max;
     double lat_lin_max;
 };

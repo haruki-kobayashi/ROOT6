@@ -976,49 +976,41 @@ int main(int argc, char* argv[])
 
     if (std::find(plot_list.begin(), plot_list.end(), "rank") != plot_list.end()) {
         // ランキングプロットにおけるy軸(VPH)の描画範囲の基準値vph_standardを決定
-        if (vph_standard < 0) { // vph_standardが指定されていない場合
-            uint32_t range = 200;
-            uint32_t range_min = 65;
-            uint32_t range_max = 260;
-            uint32_t vph_entries = 10000;
-            uint32_t vph_mean = 0;
-            uint32_t vph_sigma = 40;
-            uint8_t cut_type = 0;
-            TH1D* vph_temp = new TH1D("vph_temp", "vph_temp", 51, 15, 270);
+        if (vph_standard < 0) { // vph_standardが指定されていない場合のみ行う
+            uint32_t range_min = 60;
+            uint32_t range = 140;
+            uint32_t vph_mean;
+            double vph_sigma;
+            double cut_range = 0.01;
+            TH1D* vph_temp = new TH1D("vph_temp", "vph_temp", 37, 15, 200);
             TCut cutvph_temp;
 
+            // VPH sumのヒストグラムを作り、値が大きい方 (最初は60 - 260) の範囲で平均値と標準偏差を見る
+            // ピークが見つかる (Mean - 1σ が範囲に入る) まで徐々に範囲を左にずらしながらループする
             do {
-                range_min -= 5;
-                if (range_min < 60) {
-                    vph_entries = vph_temp->GetEntries();
-                    vph_sigma = vph_temp->GetStdDev();
-                    range = vph_sigma * 3;
-                    if (vph_entries < 1000) cut_type = 1;
-                }
+                // ヒストグラムの範囲を設定
+                // tanθ ~ 1.0, 直線性 0.03 ~ 0.05 の領域を見る
+                cutvph_temp = Form(
+                    "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.0 && tan<(1.0+%f) && lin>0.03 && lin<0.05", 
+                    range_min, range_min + range, cut_range
+                );
 
-                range_max = range_min + range;
-
-                if (cut_type == 0) {
-                    cutvph_temp = Form(
-                    "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.03 && lin<0.05"
-                    "&& dax1<0.02 && dax2<0.02 && day1<0.02 && day2<0.02", 
-                    range_min, range_max
-                    );
-                } else {
-                    cutvph_temp = Form(
-                    "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.5 && tan<1.51 && lin>0.08 && lin<0.10"
-                    "&& dax1<0.02 && dax2<0.02 && day1<0.02 && day2<0.02", 
-                    range_min, range_max
-                    );
-                }
                 tree->Draw("(vph1+vph2)>>vph_temp", cutvph_temp, "goff");
+
                 vph_mean = vph_temp->GetMean();
-                if (range_min < 15) break;
-            } while (vph_mean < range_min + 0.5 * vph_sigma);
+                vph_sigma = vph_temp->GetStdDev();
+
+                if (range_min <= 10) break; // 範囲の下限値が10まで下がったらループを中断して抜ける
+                // ヒストグラムのエントリ数が1000未満の場合、角度範囲を広げる
+                if (vph_temp->GetEntries() < 1000) cut_range += 0.05;
+                range_min -= 5;
+                range = vph_sigma * 6; // 次のループでは範囲の下限値から6σ (ピーク + 3σ が入ることを想定) の範囲を見る
+            } while (vph_mean - vph_sigma < range_min); // Mean - 1σ が範囲に入るまでループ
 
             TF1* gaus = new TF1("gaus", "gaus", 0.0, 1000.0);
             vph_temp->Fit("gaus", "q 0", "", range_min, vph_mean + vph_sigma);
-            vph_standard = gaus->GetParameter(1) + 5;
+            vph_standard = gaus->GetParameter(1); // フィット結果の平均値を基準値とする
+            // vph_standardが指定された範囲より小さい場合は、指定された範囲にする
             if (vph_standard < ranking_vph_min) vph_standard = ranking_vph_min;
             gDirectory->Delete("vph_temp");
             delete gaus;
