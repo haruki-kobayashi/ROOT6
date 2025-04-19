@@ -21,7 +21,7 @@ dark_mode: false
 # - 元々のROOTのプリセットに加え、以下のカスタムパレットが使える。
 # - kBirdDark (kBirdを元にプロジェクターなどで白飛びしないよう少し暗くしたもの),
 #   kBlueWhiteRed, kBlueBlackRed, kGreenWhiteMagenta, kGreenBlackMagenta (中央が完全な白/黒のパレット),
-#   kLegacy (ROOT5のデフォルトに近づけたい場合はこれを選んでcontours: 20にする)
+#   kLegacy (ROOT5のデフォルトのカラーパレット)
 palette: kBird
 # カラーパレットの色数
 contours: 256

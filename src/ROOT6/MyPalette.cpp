@@ -70,6 +70,18 @@ namespace MyPalette {
             }
             return data;
         }
+
+        void CreateLegacyPalette(PaletteData data) {
+            int base = 3000;
+            std::vector<int> indices;
+
+            for (int i = 0; i < 20; ++i) {
+                int colorIndex = base + i;
+                new TColor(colorIndex, data.Red[i], data.Green[i], data.Blue[i]);
+                indices.push_back(colorIndex);
+            }
+            gStyle->SetPalette(20, &indices[0]);
+        }
     }
 
     int CreateCustomPalette(PaletteData& data) {
@@ -158,7 +170,9 @@ namespace MyPalette {
     }
 
     void SetPalette(int palette, uint32_t NContours) {
-        if (palette >= 114) {
+        if (palette == 119) {
+            CreateLegacyPalette(SetPaletteData(Palette::kLegacy));
+        } else if (palette >= 114) {
             PaletteData data = SetPaletteData(static_cast<Palette>(palette));
             CreateCustomPalette(data);
         } else {
@@ -180,7 +194,9 @@ namespace MyPalette {
             return;
         }
 
-        if (paletteIndex >= 114) {
+        if (paletteIndex == 119) {
+            CreateLegacyPalette(SetPaletteData(Palette::kLegacy));
+        } else if (paletteIndex >= 114) {
             PaletteData data = SetPaletteData(static_cast<Palette>(paletteIndex));
             CreateCustomPalette(data);
         } else {
@@ -190,9 +206,13 @@ namespace MyPalette {
     }
 
     void SetPalette(Palette palette, uint32_t NContours) {
-        PaletteData data = SetPaletteData(palette);
-        CreateCustomPalette(data);
-        gStyle->SetNumberContours(NContours);
+        if (static_cast<int>(palette) == 119) {
+            CreateLegacyPalette(SetPaletteData(Palette::kLegacy));
+        } else {
+            PaletteData data = SetPaletteData(palette);
+            CreateCustomPalette(data);
+            gStyle->SetNumberContours(NContours);
+        }
     }
 
     void SetPalette(EColorPalette palette, uint32_t NContours) {

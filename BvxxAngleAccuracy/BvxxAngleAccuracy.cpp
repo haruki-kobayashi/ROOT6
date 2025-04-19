@@ -37,8 +37,8 @@ int main(int argc, char* argv[])
     const auto output_txt = parser.get<std::string>("output_txt");
     const auto output_pdf = parser.get<std::string>("--output_pdf");
     auto pl = parser.get<int>("--pl_number");
-    auto area = parser.get<int>("--area_number");
-    auto thickness = parser.get<double>("--thickness");
+    const auto area = parser.get<int>("--area_number");
+    const auto thickness = parser.get<double>("--thickness");
 
     // 出力PDFファイル名の設定
     const std::string output = (output_pdf.empty())
@@ -80,7 +80,6 @@ int main(int argc, char* argv[])
 
 	gStyle->SetOptStat("e");
 	gStyle->SetOptFit(1102);
-    gStyle->SetStatFormat(".2g");
     gStyle->SetStatX(0.9);
     gStyle->SetStatY(0.9);
     gStyle->SetStatW(0.15);
@@ -149,6 +148,7 @@ int main(int argc, char* argv[])
         delete graph[i];
     }
     delete[] graph;
+    gDirectory->Delete("graph*");
     delete lat_lg;
     delete rad_lg;
 
@@ -166,9 +166,9 @@ int main(int argc, char* argv[])
         graph2[i]->SetMarkerStyle(20);
     }
 
-	gStyle->SetOptFit(102);
+	gStyle->SetOptFit(112);
     gStyle->SetStatFormat(".4f");
-    gStyle->SetStatY(0.28);
+    gStyle->SetStatY(0.26);
 
 	TF1* flat = new TF1("flat", Form("sqrt(2)/%f*[0]", thickness), 0.0, 5.0);
 	flat->SetParameter(0, 1);
@@ -188,7 +188,7 @@ int main(int argc, char* argv[])
     gStyle->SetStatX(0.39);
     gStyle->SetStatY(0.9);
 
-	TF1* frad = new TF1("frad", Form("sqrt(2*[0]^2+[1]^2*x^2)/%f", thickness), 0.0, 5.0);
+	TF1* frad = new TF1("frad", Form("sqrt(2*([0]^2+[1]^2*x^2))/%f", thickness), 0.0, 5.0);
     frad->FixParameter(0, dx);
 	frad->SetParameter(1, 4);
 	graph2[1]->Fit(frad, "q0", "", 0.0, 5.0);
@@ -215,6 +215,7 @@ int main(int argc, char* argv[])
         delete graph2[i];
     }
     delete[] graph2;
+    gDirectory->Delete("graph*");
     delete flat;
     delete frad;
     delete lat_lg2;
@@ -259,7 +260,7 @@ void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[])
         .default_value(0)
         .scan<'i', int>();
     // オプション引数: 乳剤厚
-    parser.add_argument("-t", "--thickness")
+    parser.add_argument("-thick", "--thickness")
         .help("Thickness of one emulsion layer.")
         .default_value(60.0)
         .scan<'g', double>();
