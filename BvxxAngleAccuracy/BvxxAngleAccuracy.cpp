@@ -57,7 +57,6 @@ int main(int argc, char* argv[])
     gROOT->GetColor(90)->SetRGB( 255./255.,  75./255.,   0./255.); // red
     gROOT->GetColor(91)->SetRGB(   0./255.,  90./255., 255./255.); // blue
     gROOT->GetColor(92)->SetRGB( 200./255., 200./255., 203./255.); // light gray
-    gStyle->SetHistLineColor(91);
     gStyle->SetHistLineWidth(1);
     gStyle->SetLineColor(1);
     gStyle->SetTextColor(1);
@@ -123,34 +122,26 @@ int main(int argc, char* argv[])
     TH1* frame = c1->DrawFrame(0.0, 0.0, 5.0, 0.015, "Lateral angle accuracy;tan#it{#theta};#it{#sigma}_{lateral}");
 	graph[0]->Draw("sameP");
 	graph[1]->Draw("sameP");
-    TLegend* lat_lg = new TLegend(0.65, 0.2, 0.85, 0.37);
+    TLegend* lat_lg = new TLegend(0.17, 0.19, 0.37, 0.34);
     lat_lg->SetFillStyle(0);
     lat_lg->SetBorderSize(0);
     lat_lg->SetTextSize(0.04);
     lat_lg->AddEntry(graph[0], "Layer 1", "p");
     lat_lg->AddEntry(graph[1], "Layer 2", "p");
-    lat_lg->Draw("same");
+    lat_lg->Draw();
     c1->Print(output.c_str()); c1->Clear();
 
 	frame = c1->DrawFrame(0.0, 0.0, 5.0, 0.2, "Radial angle accuracy;tan#it{#theta};#it{#sigma}_{radial}");
 	graph[2]->Draw("sameP");
 	graph[3]->Draw("sameP");
-    TLegend* rad_lg = new TLegend(0.2, 0.63, 0.4, 0.8);
+    TLegend* rad_lg = new TLegend(0.69, 0.19, 0.89, 0.34);
     rad_lg->SetFillStyle(0);
     rad_lg->SetBorderSize(0);
     rad_lg->SetTextSize(0.04);
     rad_lg->AddEntry(graph[2], "Layer 1", "p");
     rad_lg->AddEntry(graph[3], "Layer 2", "p");
-    rad_lg->Draw("same");
+    rad_lg->Draw();
     c1->Print(output.c_str()); c1->Clear();
-
-    for (int i = 0; i < 4; ++i) {
-        delete graph[i];
-    }
-    delete[] graph;
-    gDirectory->Delete("graph*");
-    delete lat_lg;
-    delete rad_lg;
 
     TGraph **graph2 = new TGraph*[2];
     for (int i = 0; i < 2; ++i) {
@@ -162,8 +153,8 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        graph2[i]->SetMarkerColor(90);
-        graph2[i]->SetMarkerStyle(20);
+        graph2[i]->SetMarkerColor(0);
+        graph2[i]->SetMarkerStyle(1);
     }
 
 	gStyle->SetOptFit(112);
@@ -176,13 +167,16 @@ int main(int argc, char* argv[])
 	double dx = flat->GetParameter(0);
     frame = c1->DrawFrame(0.0, 0.0, 5.0, 0.015, "Lateral angle accuracy;tan#it{#theta};#it{#sigma}_{Lateral}");
 	graph2[0]->Draw("sameP");
+	graph[0]->Draw("sameP");
+	graph[1]->Draw("sameP");
     flat->Draw("same");
-    TLegend* lat_lg2 = new TLegend(0.2, 0.2, 0.6, 0.4);
+    TLegend* lat_lg2 = new TLegend(0.3, 0.25, 0.7, 0.45);
     lat_lg2->SetFillStyle(0);
     lat_lg2->SetBorderSize(0);
     lat_lg2->SetTextSize(0.05);
     lat_lg2->AddEntry(graph2[0], Form("#it{#sigma}_{Lateral} =^{ }#frac{#sqrt{2}}{%.0f} p_{0}", thickness), "");
     lat_lg2->Draw();
+    lat_lg->Draw();
     c1->Print(output.c_str()); c1->Clear();
 
     gStyle->SetStatX(0.39);
@@ -195,6 +189,8 @@ int main(int argc, char* argv[])
 	double dz= frad->GetParameter(1);
 	frame = c1->DrawFrame(0.0, 0.0, 5.0, 0.2, "Radial angle accuracy;tan#it{#theta};#it{#sigma}_{Radial}");
 	graph2[1]->Draw("sameP");
+	graph[2]->Draw("sameP");
+	graph[3]->Draw("sameP");
     frad->Draw("same");
     TLegend* rad_lg2 = new TLegend(0.12, 0.37, 0.32, 0.77);
     rad_lg2->SetFillStyle(0);
@@ -209,8 +205,15 @@ int main(int argc, char* argv[])
         ""
     );
     rad_lg2->Draw();
+    rad_lg->Draw();
     c1->Print(output.c_str()); c1->Clear();
 
+    for (int i = 0; i < 4; ++i) {
+        delete graph[i];
+    }
+    delete[] graph;
+    delete lat_lg;
+    delete rad_lg;
     for (int i = 0; i < 2; ++i) {
         delete graph2[i];
     }
@@ -392,7 +395,8 @@ void diff_hist(
         );
 
         hist[i] = new TH1F(name, title, 100, -range, range);
-        hist[i]->SetFillColorAlpha(91, 0.4);
+        hist[i]->SetFillColorAlpha(layer == 1 ? 90 : 91, 0.4);
+        hist[i]->SetLineColor(layer == 1 ? 90 : 91);
 
         tree->Draw(
             Form("%s%d >> %s", branch_name, layer, name.Data()),

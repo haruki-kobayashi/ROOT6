@@ -1,3 +1,5 @@
+#include <fstream>
+
 #include <TROOT.h>
 #include <TFile.h>
 #include <TTree.h>
@@ -18,7 +20,6 @@
 
 #include <ROOT6/MyUtil.hpp>
 #include <ROOT6/MyPalette.hpp>
-#include <ROOT6/StderrSuppressor.hpp>
 
 void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[]);
 TTree* read_bvxx(const std::string& bvxxfile, int pl, int area);
