@@ -249,7 +249,7 @@ void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[])
         .help("Path to the output text file.")
         .required();
     // オプション引数: 出力PDFファイル名
-    parser.add_argument("-pdf", "--output_pdf")
+    parser.add_argument("-o", "-pdf", "--output_pdf")
         .help("Output PDF file name. [default: [input_bvxx]_angle_accuracy.pdf]")
         .default_value(std::string());
     // オプション引数: PL番号
