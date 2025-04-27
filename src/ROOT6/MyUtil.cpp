@@ -28,8 +28,10 @@ namespace MyUtil {
         for (int i = min; i <= max; ++i) {
             if (h->GetBinContent(i) == 0) continue;
 
+            int nColors = gStyle->GetNumberOfColors();
+
             int ci = gStyle->GetColorPalette(
-                256 * (h->GetBinCenter(i) - h->GetBinLowEdge(min)) / 
+                nColors * (h->GetBinCenter(i) - h->GetBinLowEdge(min)) /
                 (h->GetBinLowEdge(max + 1) - h->GetBinLowEdge(min))
             );
 

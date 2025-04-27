@@ -11,6 +11,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BvxxAngleAccuracy", "BvxxAn
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BvxxChi2RankPlot", "BvxxChi2RankPlot\BvxxChi2RankPlot.vcxproj", "{885C0C27-FEEB-4206-9783-95FC967F81D6}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DcPlot", "DcPlot\DcPlot.vcxproj", "{74148B7A-B5CF-4226-80FF-6C2BE3D5A287}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -43,6 +45,12 @@ Global
 		{885C0C27-FEEB-4206-9783-95FC967F81D6}.Release|x64.Build.0 = Release|x64
 		{885C0C27-FEEB-4206-9783-95FC967F81D6}.Release|x86.ActiveCfg = Release|Win32
 		{885C0C27-FEEB-4206-9783-95FC967F81D6}.Release|x86.Build.0 = Release|Win32
+		{74148B7A-B5CF-4226-80FF-6C2BE3D5A287}.Debug|x64.ActiveCfg = Release|x64
+		{74148B7A-B5CF-4226-80FF-6C2BE3D5A287}.Debug|x86.ActiveCfg = Release|Win32
+		{74148B7A-B5CF-4226-80FF-6C2BE3D5A287}.Release|x64.ActiveCfg = Release|x64
+		{74148B7A-B5CF-4226-80FF-6C2BE3D5A287}.Release|x64.Build.0 = Release|x64
+		{74148B7A-B5CF-4226-80FF-6C2BE3D5A287}.Release|x86.ActiveCfg = Release|Win32
+		{74148B7A-B5CF-4226-80FF-6C2BE3D5A287}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
     double elapsed_time = sw.RealTime();
     double cpu_time = sw.CpuTime();
     std::cout << Form(
-        "Angle accuracy data & track data successfully loaded. - Elapsed %.2f [s] (CPU: %.2f [s])", 
+        "Angle accuracy data & track data successfully loaded. - Elapsed %.2f [s] (CPU: %.2f [s])",
         elapsed_time, cpu_time
     ) << std::endl;
 
@@ -138,8 +138,8 @@ int main(int argc, char* argv[])
     // プロット開始
     TDatime time_now;
     TString Time_Now = Form(
-        "%d-%02d-%02d %02d:%02d:%02d", 
-        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(), 
+        "%d-%02d-%02d %02d:%02d:%02d",
+        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(),
         time_now.GetHour(), time_now.GetMinute(), time_now.GetSecond()
     );
     sw.Start();
@@ -190,14 +190,14 @@ int main(int argc, char* argv[])
     // プロット終了
     time_now.Set();
     Time_Now = Form(
-        "%d-%02d-%02d %02d:%02d:%02d", 
-        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(), 
+        "%d-%02d-%02d %02d:%02d:%02d",
+        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(),
         time_now.GetHour(), time_now.GetMinute(), time_now.GetSecond()
     );
     elapsed_time = sw.RealTime();
     cpu_time = sw.CpuTime();
     std::cout << Form(
-        "\n Plot end   : %s - Elapsed %.2f [s] (CPU: %.2f [s])", 
+        "\n Plot end   : %s - Elapsed %.2f [s] (CPU: %.2f [s])",
         Time_Now.Data(), elapsed_time, cpu_time
     ) << std::endl;
     std::cout << " Output     : " << output << std::endl;

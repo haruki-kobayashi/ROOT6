@@ -95,7 +95,7 @@ namespace MyPalette {
         }
 
         // 配列長が一致しているか確認
-        if (data.Red.size() != data.size || data.Green.size() != data.size || 
+        if (data.Red.size() != data.size || data.Green.size() != data.size ||
             data.Blue.size() != data.size || data.Stops.size() != data.size) {
             std::cerr << "Error: Vector lengths do not match the specified size."
                       << " Expected size: " << data.size

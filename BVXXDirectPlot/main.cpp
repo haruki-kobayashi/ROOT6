@@ -585,11 +585,12 @@ int main(int argc, char* argv[])
     if (negatepalette) MyPalette::NegatePalette();
     // カラー定義
     float r1, g1, b1, r2, g2, b2, r3, g3, b3;
-    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.15))->GetRGB(r1, g1, b1);
+    int nColors = gStyle->GetNumberOfColors();
+    gROOT->GetColor(gStyle->GetColorPalette(nColors * 0.15))->GetRGB(r1, g1, b1);
     gROOT->GetColor(90)->SetRGB(r1, g1, b1);
-    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.85))->GetRGB(r3, g3, b3);
+    gROOT->GetColor(gStyle->GetColorPalette(nColors * 0.85))->GetRGB(r3, g3, b3);
     gROOT->GetColor(91)->SetRGB(r3, g3, b3);
-    gROOT->GetColor(gStyle->GetColorPalette(256 * 0.5))->GetRGB(r2, g2, b2);
+    gROOT->GetColor(gStyle->GetColorPalette(nColors * 0.5))->GetRGB(r2, g2, b2);
     gROOT->GetColor(92)->SetRGB(r2, g2, b2);
     gROOT->GetColor(93)->SetRGB(r2 * 0.6, g2 * 0.6, b2 * 0.6);
     gROOT->GetColor(94)->SetRGB( 200./255., 200./255., 200./255.);
@@ -652,16 +653,16 @@ int main(int argc, char* argv[])
         tree->Branch(branch.first, branch.second, (std::string(branch.first) + "/B").c_str());
     }
     const std::array<std::pair<const char*, void*>, 4> uint32Branches = {{
-        {"ImagerID1", &ImagerID1}, {"ImagerID2", &ImagerID2}, 
+        {"ImagerID1", &ImagerID1}, {"ImagerID2", &ImagerID2},
         {"vph1", &vph1}, {"vph2", &vph2}
     }};
     for (const auto& branch : uint32Branches) {
         tree->Branch(branch.first, branch.second, (std::string(branch.first) + "/I").c_str());
     }
     const std::array<std::pair<const char*, void*>, 15> doubleBranches = {{
-        {"x", &x}, {"y", &y}, {"ax", &ax}, {"ay", &ay}, 
-        {"ax1", &ax1}, {"ay1", &ay1}, {"ax2", &ax2}, {"ay2", &ay2}, 
-        {"dax1", &dax1}, {"day1", &day1}, {"dax2", &dax2}, {"day2", &day2}, 
+        {"x", &x}, {"y", &y}, {"ax", &ax}, {"ay", &ay},
+        {"ax1", &ax1}, {"ay1", &ay1}, {"ax2", &ax2}, {"ay2", &ay2},
+        {"dax1", &dax1}, {"day1", &day1}, {"dax2", &dax2}, {"day2", &day2},
         {"tan", &tan}, {"lin", &lin}, {"linl", &linl}
     }};
     for (const auto& branch : doubleBranches) {
@@ -807,7 +808,7 @@ int main(int argc, char* argv[])
     double elapsed_time = sw.RealTime();
     double cpu_time = sw.CpuTime();
     std::cout << Form(
-        "Track data successfully loaded. - Elapsed %.2f [s] (CPU: %.2f [s])", 
+        "Track data successfully loaded. - Elapsed %.2f [s] (CPU: %.2f [s])",
         elapsed_time, cpu_time
     ) << std::endl;
 
@@ -819,8 +820,8 @@ int main(int argc, char* argv[])
     // プロット開始
     TDatime time_now;
     TString Time_Now = Form(
-        "%d-%02d-%02d %02d:%02d:%02d", 
-        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(), 
+        "%d-%02d-%02d %02d:%02d:%02d",
+        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(),
         time_now.GetHour(), time_now.GetMinute(), time_now.GetSecond()
     );
     sw.Start();
@@ -838,7 +839,7 @@ int main(int argc, char* argv[])
     std::unordered_map<std::string, int> page_map = {
         {"pos", 1}, {"pos-prj", 1}, {"ang", 1}, {"ang-prj", 1},
         {"da", 1}, {"da-nc", 1}, {"da-rl", 2}, {"ph2d", 1},
-        {"ph1d", 10 + phvph_loop}, {"rank", std::size(ranking_params_vec)}, 
+        {"ph1d", 10 + phvph_loop}, {"rank", std::size(ranking_params_vec)},
         {"dxyz", 1}, {"dxy", 1}, {"sennot", 1}, {"sendrz", 1}
     };
     const int total = std::accumulate( // 合計ページ数
@@ -991,7 +992,7 @@ int main(int argc, char* argv[])
                 // ヒストグラムの範囲を設定
                 // tanθ ~ 1.0, 直線性 0.03 ~ 0.05 の領域を見る
                 cutvph_temp = Form(
-                    "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.0 && tan<(1.0+%f) && lin>0.03 && lin<0.05", 
+                    "(vph1+vph2)>%d && (vph1+vph2)<%d && tan>1.0 && tan<(1.0+%f) && lin>0.03 && lin<0.05",
                     range_min, range_min + range, cut_range
                 );
 
@@ -1065,14 +1066,14 @@ int main(int argc, char* argv[])
     // プロット終了
     time_now.Set();
     Time_Now = Form(
-        "%d-%02d-%02d %02d:%02d:%02d", 
-        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(), 
+        "%d-%02d-%02d %02d:%02d:%02d",
+        time_now.GetYear(), time_now.GetMonth(), time_now.GetDay(),
         time_now.GetHour(), time_now.GetMinute(), time_now.GetSecond()
     );
     elapsed_time = sw.RealTime();
     cpu_time = sw.CpuTime();
     std::cout << Form(
-        "\n Plot end   : %s - Elapsed %.2f [s] (CPU: %.2f [s])", 
+        "\n Plot end   : %s - Elapsed %.2f [s] (CPU: %.2f [s])",
         Time_Now.Data(), elapsed_time, cpu_time
     ) << std::endl;
     std::cout << " Output     : " << output << std::endl;
@@ -1321,28 +1322,28 @@ void d_angle(TCanvas *c1, TTree *tree) noexcept
         hist->Draw("colz");
     };
 
-    createAndDrawHistogram(1, 
-        "axdax1", 
+    createAndDrawHistogram(1,
+        "axdax1",
         "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1} : tan#it{#theta}_{x};"
         "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1}",
         "dax1:ax"
     );
-    createAndDrawHistogram(2, 
-        "ayday1", 
+    createAndDrawHistogram(2,
+        "ayday1",
         "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1} : tan#it{#theta}_{y};"
-        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1}", 
+        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1}",
         "day1:ay"
     );
-    createAndDrawHistogram(3, 
-        "axdax2", 
+    createAndDrawHistogram(3,
+        "axdax2",
         "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2} : tan#it{#theta}_{x};"
-        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2}", 
+        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2}",
         "dax2:ax"
     );
-    createAndDrawHistogram(4, 
-        "ayday2", 
+    createAndDrawHistogram(4,
+        "ayday2",
         "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2} : tan#it{#theta}_{y};"
-        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2}", 
+        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2}",
         "day2:ay"
     );
 }
@@ -1373,48 +1374,48 @@ void d_angle_Ncut(
     };
 
     TCut cut_temp = Form(
-        "dax2*dax2<%s*%s&&day2*day2<%s*%s&&ph1>%d&&ph2>%d", 
-        da_cutX.Data(), da_cutX.Data(), 
-        da_cutY.Data(), da_cutY.Data(), 
+        "dax2*dax2<%s*%s&&day2*day2<%s*%s&&ph1>%d&&ph2>%d",
+        da_cutX.Data(), da_cutX.Data(),
+        da_cutY.Data(), da_cutY.Data(),
         da_cutPH, da_cutPH
     );
     createAndDrawHistogram(
-        1, 
-        "axdax1", 
+        1,
+        "axdax1",
         "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1} : tan#it{#theta}_{x} (Noise cut);"
-        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1}", 
-        "dax1:ax", 
+        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x1}",
+        "dax1:ax",
         cut_temp
     );
     createAndDrawHistogram(
-        2, 
-        "ayday1", 
+        2,
+        "ayday1",
         "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1} : tan#it{#theta}_{y} (Noise cut);"
-        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1}", 
-        "day1:ay", 
+        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y1}",
+        "day1:ay",
         cut_temp
     );
 
     cut_temp = Form(
-        "dax1*dax1<%s*%s&&day1*day1<%s*%s&&ph1>%d&&ph2>%d", 
-        da_cutX.Data(), da_cutX.Data(), 
-        da_cutY.Data(), da_cutY.Data(), 
+        "dax1*dax1<%s*%s&&day1*day1<%s*%s&&ph1>%d&&ph2>%d",
+        da_cutX.Data(), da_cutX.Data(),
+        da_cutY.Data(), da_cutY.Data(),
         da_cutPH, da_cutPH
     );
     createAndDrawHistogram(
-        3, 
-        "axdax2", 
+        3,
+        "axdax2",
         "tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2} : tan#it{#theta}_{x} (Noise cut);"
-        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2}", 
-        "dax2:ax", 
+        "tan#it{#theta}_{x};tan#it{#theta}_{x}^{ }#minus tan#it{#theta}_{x2}",
+        "dax2:ax",
         cut_temp
     );
     createAndDrawHistogram(
-        4, 
-        "ayday2", 
+        4,
+        "ayday2",
         "tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2} : tan#it{#theta}_{y} (Noise cut);"
-        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2}", 
-        "day2:ay", 
+        "tan#it{#theta}_{y};tan#it{#theta}_{y}^{ }#minus tan#it{#theta}_{y2}",
+        "day2:ay",
         cut_temp
     );
 }
@@ -1445,8 +1446,8 @@ void d_angle_rl(
     };
 
     createAndDrawHistogram(
-        1, 
-        "lat", 
+        1,
+        "lat",
         Form(
             "#Deltalateral %s;tan#it{#theta};"
             "#frac{tan#it{#theta}_{x%s}^{ }#times tan#it{#theta}_{y}^{ }"
@@ -1456,14 +1457,14 @@ void d_angle_rl(
             suffix.Data(),
             suffix.Data()
         ),
-        "(ax%s*ay-ay%s*ax)/tan:tan>>lat", 
-        angle_max, 
-        -dlat_range, 
+        "(ax%s*ay-ay%s*ax)/tan:tan>>lat",
+        angle_max,
+        -dlat_range,
         dlat_range
     );
     createAndDrawHistogram(
-        2, 
-        "rad", 
+        2,
+        "rad",
         Form(
             "#Deltaradial %s;tan#it{#theta};"
             "#frac{tan#it{#theta}_{x%s}^{ }#times tan#it{#theta}_{x}^{ }"
@@ -1474,9 +1475,9 @@ void d_angle_rl(
             suffix.Data(),
             suffix.Data()
         ),
-        "(ax%s*ax+ay%s*ay)/tan-tan:tan>>rad", 
-        angle_max, 
-        -drad_range, 
+        "(ax%s*ax+ay%s*ay)/tan-tan:tan>>rad",
+        angle_max,
+        -drad_range,
         drad_range
     );
 }
@@ -1717,8 +1718,8 @@ void dxdydz(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept
             double xcenter = dz_2D->GetXaxis()->GetBinCenter(ix);
             double ycenter = dz_2D->GetYaxis()->GetBinCenter(iy);
             TCut area = Form(
-                "(%f-x*0.001)*(%f-x*0.001)<%f*%f && (%f-y*0.001)*(%f-y*0.001)<%f*%f", 
-                xcenter, xcenter, pitch_half, pitch_half, 
+                "(%f-x*0.001)*(%f-x*0.001)<%f*%f && (%f-y*0.001)*(%f-y*0.001)<%f*%f",
+                xcenter, xcenter, pitch_half, pitch_half,
                 ycenter, ycenter, pitch_half, pitch_half
             );
 
@@ -1850,11 +1851,11 @@ void dxdy(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept
                 double xcenter = dx_2D->GetXaxis()->GetBinCenter(ix);
                 double ycenter = dx_2D->GetYaxis()->GetBinCenter(iy);
                 TCut area = Form(
-                    "(%f-x*0.001)*(%f-x*0.001)<%f*%f && (%f-y*0.001)*(%f-y*0.001)<%f*%f", 
-                    xcenter, xcenter, pitch_half, pitch_half, 
+                    "(%f-x*0.001)*(%f-x*0.001)<%f*%f && (%f-y*0.001)*(%f-y*0.001)<%f*%f",
+                    xcenter, xcenter, pitch_half, pitch_half,
                     ycenter, ycenter, pitch_half, pitch_half
                 );
-    
+
                 tree->Draw("dx >> dx_temp", area, "goff");
                 tree->Draw("dy >> dy_temp", area, "goff");
 
