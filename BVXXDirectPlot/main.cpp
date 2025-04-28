@@ -341,6 +341,8 @@ int main(int argc, char* argv[])
             for (const auto& plot : params["off_plot"].as<std::vector<std::string>>(std::vector<std::string>())) {
                 if (!on_plot.count(plot)) { // YAMLファイルのoff_plotからon_plotと被るものを除外(コマンドライン引数の優先)
                     off_plot[plot] = true;
+                } else {
+                    on_plot.erase(plot); // 被ったものはon_plotフラグをfalseにする
                 }
             }
             if (!parser.is_used("-f")) {
@@ -516,17 +518,24 @@ int main(int argc, char* argv[])
 
     // 引数を利用する変数を設定
     const int font_code = 10 * font_number + 2;
-    std::set<std::string> plot_list;
+    std::set<std::string> all_list = {
+        "pos", "pos-prj", "ang", "ang-prj", "da", "da-nc", "da-rl",
+        "ph2d", "ph1d", "rank", "dxyz", "dxy", "sennot", "sendrz"
+    };
     if (on_plot.empty()) {
-        plot_list = {
-            "pos", "pos-prj", "ang", "ang-prj", "da", "da-nc", "da-rl",
-            "ph2d", "ph1d", "rank", "dxyz", "dxy", "sennot", "sendrz"
-        };
-    } else {
-        for (const auto& [plot, _] : on_plot) {
-            if (!off_plot.count(plot)) {
-                plot_list.insert(plot);
-            }
+        for (const auto& plot : all_list) {
+            on_plot[plot] = true;
+        }
+    }
+    for (const auto& [plot, _] : on_plot) {
+        if (off_plot.count(plot)) {
+            on_plot[plot] = false; // off_plotに含まれるものはon_plotから除外
+        }
+    }
+    std::set<std::string> plot_list;
+    for (const auto& [plot, isEnabled] : on_plot) {
+        if (isEnabled) {
+            plot_list.insert(plot); // この時点でon_plotフラグがtrueになっているものをplot_listに追加
         }
     }
     const int phvph_loop = static_cast<int>((angle_max - 0.1) * 2) + 2;
