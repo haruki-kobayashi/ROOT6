@@ -29,12 +29,12 @@
 
 void dist_arrow(TCanvas *c1, TTree *tree[2], const double *AreaParam, const double resolution,
     const double reference, int32_t *entries, const double extz, const uint8_t face) noexcept;
-void dist_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const double dist_max,
-    int32_t *entries, const double markersize) noexcept;
-void shr_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const std::vector<double> shr_range,
-    int32_t *entries, const double markersize) noexcept;
-void sig_bg_map(TCanvas *c1, TTree *tree, const double *AreaParam, double sn_max[2],
-    int32_t *entries, const double markersize) noexcept;
+void dist_map(TCanvas *c1, TTree *tree[2], const double *AreaParam,
+    const double dist_max, int32_t *entries) noexcept;
+void shr_map(TCanvas *c1, TTree *tree[2], const double *AreaParam,
+    const std::vector<double> shr_range, int32_t *entries) noexcept;
+void sig_bg_map(TCanvas *c1, TTree *tree, const double *AreaParam,
+    double sn_max[2], int32_t *entries) noexcept;
 void dist_shr_map(TCanvas *c1, TTree *tree[2], const double dist_max,
     const std::vector<double> shr_range, const double sig_max, int32_t *entries) noexcept;
 
@@ -231,6 +231,7 @@ int main(int argc, char *argv[])
     gStyle->SetLineColor(global_darkmode ? 0 : 1);         // 統計boxの枠など
 
     // スタイルの設定
+    gStyle->SetOptStat(0);               // 統計boxの表示をオフ
     gStyle->SetPadRightMargin(0.1);      // Pad右側のマージン
     gStyle->SetPadLeftMargin(0.1);       // Pad左側のマージン
     gStyle->SetPadTopMargin(0.1);        // Pad上側のマージン
@@ -340,33 +341,18 @@ int main(int argc, char *argv[])
     const double RangeX = MaxX - MinX; // データ領域
     const double RangeY = MaxY - MinY; // データ領域
     double LowX, UpX, LowY, UpY, bin; // 表示範囲とビンの数
-    double markersize; // マーカーサイズ
     if (RangeX >= RangeY) {
         LowX = MinX - 10;
         UpX = MaxX + 10;
         LowY = MinY - (RangeX - RangeY + 20) * 0.5;
         UpY = MaxY + (RangeX - RangeY + 20) * 0.5;
-        bin = (RangeX + 20) * 1000 / view;
-        if (RangeX < 100) {
-            markersize = view * 0.00023;
-        } else if (RangeX < 150) {
-            markersize = view * 0.00011;
-        } else if (RangeX < 300) {
-            markersize = view * 0.00006;
-        }
+        bin = (RangeX + 20) * 1500 / view;
     } else {
         LowX = MinX - (RangeY - RangeX + 20) * 0.5;
         UpX = MaxX + (RangeY - RangeX + 20) * 0.5;
         LowY = MinY - 10;
         UpY = MaxY + 10;
-        bin = (RangeY + 20) * 1000 / view;
-        if (RangeY < 100) {
-            markersize = view * 0.00023;
-        } else if (RangeY < 150) {
-            markersize = view * 0.00011;
-        } else if (RangeY < 300) {
-            markersize = view * 0.00006;
-        }
+        bin = (RangeY + 20) * 1500 / view;
     }
     const double AreaParam[7] = {bin, LowX, UpX, LowY, UpY, RangeX, RangeY};
 
@@ -378,19 +364,22 @@ int main(int argc, char *argv[])
     c1->Print(output.c_str()); c1->Clear();
     MyUtil::ShowProgress(page, total);
 
-    dist_map(c1, tree, AreaParam, dist_max, entries, markersize);
+    dist_map(c1, tree, AreaParam, dist_max, entries);
     c1->Print(output.c_str()); c1->Clear();
     MyUtil::ShowProgress(page, total);
+    gDirectory->Delete("dist_hist*");
     gDirectory->Delete("*_1D");
 
-    shr_map(c1, tree, AreaParam, shr_range, entries, markersize);
+    shr_map(c1, tree, AreaParam, shr_range, entries);
     c1->Print(output.c_str()); c1->Clear();
     MyUtil::ShowProgress(page, total);
+    gDirectory->Delete("shr_hist*");
     gDirectory->Delete("*_1D");
 
-    sig_bg_map(c1, tree[0], AreaParam, sn_max, entries, markersize);
+    sig_bg_map(c1, tree[0], AreaParam, sn_max, entries);
     c1->Print(output.c_str()); c1->Clear();
     MyUtil::ShowProgress(page, total);
+    gDirectory->Delete("sn_hist*");
     gDirectory->Delete("*_1D");
 
     dist_shr_map(c1, tree, dist_max, shr_range, sn_max[0], entries);
@@ -506,8 +495,8 @@ void dist_arrow(TCanvas *c1, TTree *tree[2], const double *AreaParam, const doub
     arrowY->Draw();
 }
 
-void dist_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const double dist_max,
-    int32_t *entries, const double markersize) noexcept
+void dist_map(TCanvas *c1, TTree *tree[2], const double *AreaParam,
+    const double dist_max, int32_t *entries) noexcept
 {
     c1->Divide(2, 2);
     for (int pad = 1; pad <= 4; ++pad) {
@@ -519,64 +508,70 @@ void dist_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const double
     gStyle->SetTitleOffset(1.4, "y");
     gStyle->SetTitleOffset(1.2, "z");
 
+    double bin  = AreaParam[0];
     double LowX = AreaParam[1];
     double UpX  = AreaParam[2];
     double LowY = AreaParam[3];
     double UpY  = AreaParam[4];
 
-    TGraph2D *gframe = new TGraph2D;
-    gframe->SetPoint(0, LowX, LowY, 0);
-    gframe->SetPoint(1, UpX, UpY, 0);
-    gframe->SetMarkerColor(global_darkmode ? 1 : 0);
-    gframe->GetHistogram()->GetXaxis()->SetTickLength(-0.03);
-    gframe->GetHistogram()->GetYaxis()->SetTickLength(-0.03);
-    gframe->GetXaxis()->SetLabelOffset(0.05);
-    gframe->GetYaxis()->SetLabelOffset(0.1);
-    gframe->GetHistogram()->SetMinimum(0.0);
-    gframe->GetHistogram()->SetMaximum(dist_max);
-
+    // 2Dヒストグラム作成
+    TH2D *dist_hist[2];
     for (int i = 0; i < 2; ++i) {
-        TGraph2D *dist_graph = new TGraph2D;
+        dist_hist[i] = new TH2D(
+            Form("dist_hist%d", i+1),
+            ";x [mm];y [mm];Distortion",
+            bin, LowX, UpX,
+            bin, LowY, UpY
+        );
+
         double x, y, dist;
         tree[i]->SetBranchAddress("x", &x);
         tree[i]->SetBranchAddress("y", &y);
         tree[i]->SetBranchAddress("dist", &dist);
 
+        // 各ビンの合計値とカウントを保存して平均化
+        std::vector<double> sum(bin * bin, 0.0);
+        std::vector<int> count(bin * bin, 0);
+
         for (int j = 0; j < entries[i]; ++j) {
             tree[i]->GetEntry(j);
-            dist_graph->SetPoint(dist_graph->GetN(), x, y, dist);
+            int binX = dist_hist[i]->GetXaxis()->FindBin(x);
+            int binY = dist_hist[i]->GetYaxis()->FindBin(y);
+            if (binX >= 1 && binX <= bin && binY >= 1 && binY <= bin) {
+                int idx = (binY - 1) * bin + (binX - 1);
+                sum[idx] += dist;
+                count[idx] += 1;
+            }
         }
 
-        c1->cd(i + 1);
-        gPad->SetTheta(90);
-        gPad->SetPhi(1.e-14);
-        gPad->SetGrid(0, 0);
-        gframe->SetTitle(";x [mm];y [mm];");
-        gframe->Draw("p");
-        dist_graph->SetMarkerStyle(21);
-        dist_graph->SetMarkerSize(markersize);
-        dist_graph->Draw("pcolzsame");
+        // 平均値をヒストグラムにセット
+        for (int bx = 1; bx <= bin; ++bx) {
+            for (int by = 1; by <= bin; ++by) {
+                int idx = (by - 1) * bin + (bx - 1);
+                if (count[idx] > 0) {
+                    dist_hist[i]->SetBinContent(bx, by, sum[idx] / count[idx]);
+                } else {
+                    dist_hist[i]->SetBinContent(bx, by, 0);
+                }
+            }
+        }
 
+        // 描画
+        c1->cd(i + 1);
+
+        dist_hist[i]->SetMinimum(0.0);
+        dist_hist[i]->SetMaximum(dist_max);
+        dist_hist[i]->Draw("colz");
+
+        // タイトル
         TLatex title;
         title.SetTextAlign(22);
         title.SetTextSize(0.06);
         title.SetTextColor(global_darkmode ? 0 : 1);
-        title.DrawLatex(0.0, 0.65, Form("|Distortion %d|", i + 1));
-
-        TLine *l0, *l1, *l2, *l3;
-        l0 = new TLine(-0.574, -0.574, -0.574, 0.574);
-        l1 = new TLine(0.574, -0.574, 0.574, 0.574);
-        l2 = new TLine(-0.574, -0.574, 0.574, -0.574);
-        l3 = new TLine(-0.574, 0.574, 0.574, 0.574);
-        for (TLine *line : {l0, l1, l2, l3}) {
-            if (line) {
-                line->SetLineWidth(1);
-                line->SetLineColor(global_darkmode ? 0 : 1);
-                line->Draw("same");
-            }
-        }
+        title.DrawLatexNDC((i == 0) ? 0.5 : 0.43, 0.95, Form("|Distortion %d|", i + 1));
     }
 
+    // 1Dヒストグラム作成
     TH1D *dist1_1D = new TH1D(
         "dist1_1D",
         ";|Distortion 1| = #sqrt{#Deltatan^{2}#it{#theta}_{x1}#plus#Deltatan^{2}#it{#theta}_{y1}}"
@@ -622,8 +617,124 @@ void dist_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const double
     }
 }
 
-void shr_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const std::vector<double> shr_range,
-    int32_t *entries, const double markersize) noexcept
+// void dist_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const double dist_max,
+//     int32_t *entries, const double markersize) noexcept
+// {
+//     c1->Divide(2, 2);
+//     for (int pad = 1; pad <= 4; ++pad) {
+//         c1->GetPad(pad)->SetRightMargin((pad % 2 == 0) ? 0.3 : 0.235);
+//         c1->GetPad(pad)->SetLeftMargin((pad % 2 == 0) ? 0.165 : 0.23);
+//     }
+
+//     gStyle->SetTitleOffset(1.4, "x");
+//     gStyle->SetTitleOffset(1.4, "y");
+//     gStyle->SetTitleOffset(1.2, "z");
+
+//     double LowX = AreaParam[1];
+//     double UpX  = AreaParam[2];
+//     double LowY = AreaParam[3];
+//     double UpY  = AreaParam[4];
+
+//     TGraph2D *gframe = new TGraph2D;
+//     gframe->SetPoint(0, LowX, LowY, 0);
+//     gframe->SetPoint(1, UpX, UpY, 0);
+//     gframe->SetMarkerColor(global_darkmode ? 1 : 0);
+//     gframe->GetHistogram()->GetXaxis()->SetTickLength(-0.03);
+//     gframe->GetHistogram()->GetYaxis()->SetTickLength(-0.03);
+//     gframe->GetXaxis()->SetLabelOffset(0.05);
+//     gframe->GetYaxis()->SetLabelOffset(0.1);
+//     gframe->GetHistogram()->SetMinimum(0.0);
+//     gframe->GetHistogram()->SetMaximum(dist_max);
+
+//     for (int i = 0; i < 2; ++i) {
+//         TGraph2D *dist_graph = new TGraph2D;
+//         double x, y, dist;
+//         tree[i]->SetBranchAddress("x", &x);
+//         tree[i]->SetBranchAddress("y", &y);
+//         tree[i]->SetBranchAddress("dist", &dist);
+
+//         for (int j = 0; j < entries[i]; ++j) {
+//             tree[i]->GetEntry(j);
+//             dist_graph->SetPoint(dist_graph->GetN(), x, y, dist);
+//         }
+
+//         c1->cd(i + 1);
+//         gPad->SetTheta(90);
+//         gPad->SetPhi(1.e-14);
+//         gPad->SetGrid(0, 0);
+//         gframe->SetTitle(";x [mm];y [mm];");
+//         gframe->Draw("p");
+//         dist_graph->SetMarkerStyle(21);
+//         dist_graph->SetMarkerSize(markersize);
+//         dist_graph->Draw("pcolzsame");
+
+//         TLatex title;
+//         title.SetTextAlign(22);
+//         title.SetTextSize(0.06);
+//         title.SetTextColor(global_darkmode ? 0 : 1);
+//         title.DrawLatex(0.0, 0.65, Form("|Distortion %d|", i + 1));
+
+//         TLine *l0, *l1, *l2, *l3;
+//         l0 = new TLine(-0.574, -0.574, -0.574, 0.574);
+//         l1 = new TLine(0.574, -0.574, 0.574, 0.574);
+//         l2 = new TLine(-0.574, -0.574, 0.574, -0.574);
+//         l3 = new TLine(-0.574, 0.574, 0.574, 0.574);
+//         for (TLine *line : {l0, l1, l2, l3}) {
+//             if (line) {
+//                 line->SetLineWidth(1);
+//                 line->SetLineColor(global_darkmode ? 0 : 1);
+//                 line->Draw("same");
+//             }
+//         }
+//     }
+
+//     TH1D *dist1_1D = new TH1D(
+//         "dist1_1D",
+//         ";|Distortion 1| = #sqrt{#Deltatan^{2}#it{#theta}_{x1}#plus#Deltatan^{2}#it{#theta}_{y1}}"
+//         ";Area",
+//         100, 0.0, dist_max
+//     );
+//     TH1D *dist2_1D = new TH1D(
+//         "dist2_1D",
+//         ";|Distortion 2| = #sqrt{#Deltatan^{2}#it{#theta}_{x2}#plus#Deltatan^{2}#it{#theta}_{y2}}"
+//         ";Area",
+//         100, 0.0, dist_max
+//     );
+
+//     for (int i = 0; i < 2; ++i) {
+//         TH1D *hist = (i == 0) ? dist1_1D : dist2_1D;
+//         tree[i]->Draw(Form("dist >> dist%d_1D", i + 1), "", "goff");
+//         c1->cd(i + 3);
+//         hist->SetFillStyle(0);
+//         hist->SetLineWidth(2);
+//         hist->Draw();
+//         MyUtil::PaintBins(hist, 0.0, dist_max); // 各ビンをカラーパレットの色で塗る
+
+//         TLatex title;
+//         title.SetTextAlign(22);
+//         title.SetTextSize(0.06);
+//         title.SetTextColor(global_darkmode ? 0 : 1);
+//         title.DrawLatexNDC((i == 0) ? 0.5 : 0.43, 0.95, Form("|Distortion %d|", i + 1));
+
+//         TLegend *lg = new TLegend(
+//             (i == 0) ? 0.73 : 0.665,
+//             0.7,
+//             (i == 0) ? 0.95 : 0.885,
+//             0.9
+//         );
+//         lg->SetFillStyle(0);
+//         lg->SetBorderSize(0);
+//         lg->SetTextSize(0.04);
+//         lg->SetTextColor(global_darkmode ? 0 : 1);
+//         lg->AddEntry(hist, Form("%d areas", entries[i]), "");
+//         lg->AddEntry(hist, Form("Mean      %.5f", hist->GetMean()), "");
+//         lg->AddEntry(hist, Form("Std Dev   %.5f", hist->GetStdDev()), "");
+//         lg->Draw();
+//     }
+// }
+
+void shr_map(TCanvas *c1, TTree *tree[2], const double *AreaParam,
+    const std::vector<double> shr_range, int32_t *entries) noexcept
 {
     c1->Divide(2, 2);
     for (int pad = 1; pad <= 4; ++pad) {
@@ -635,65 +746,126 @@ void shr_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const std::ve
     gStyle->SetTitleOffset(1.4, "y");
     gStyle->SetTitleOffset(1.2, "z");
 
+    double bin  = AreaParam[0];
     double LowX = AreaParam[1];
     double UpX  = AreaParam[2];
     double LowY = AreaParam[3];
     double UpY  = AreaParam[4];
 
-    TGraph2D *gframe = new TGraph2D;
-    gframe->SetPoint(0, LowX, LowY, 0);
-    gframe->SetPoint(1, UpX, UpY, 0);
-    gframe->SetMarkerColor(global_darkmode ? 1 : 0);
-    gframe->GetHistogram()->GetXaxis()->SetTickLength(-0.03);
-    gframe->GetHistogram()->GetYaxis()->SetTickLength(-0.03);
-    gframe->GetXaxis()->SetLabelOffset(0.05);
-    gframe->GetYaxis()->SetLabelOffset(0.1);
-    gframe->GetHistogram()->SetMinimum(shr_range[0]);
-    gframe->GetHistogram()->SetMaximum(shr_range[1]);
+    // TGraph2D *gframe = new TGraph2D;
+    // gframe->SetPoint(0, LowX, LowY, 0);
+    // gframe->SetPoint(1, UpX, UpY, 0);
+    // gframe->SetMarkerColor(global_darkmode ? 1 : 0);
+    // gframe->GetHistogram()->GetXaxis()->SetTickLength(-0.03);
+    // gframe->GetHistogram()->GetYaxis()->SetTickLength(-0.03);
+    // gframe->GetXaxis()->SetLabelOffset(0.05);
+    // gframe->GetYaxis()->SetLabelOffset(0.1);
+    // gframe->GetHistogram()->SetMinimum(shr_range[0]);
+    // gframe->GetHistogram()->SetMaximum(shr_range[1]);
 
+    // for (int i = 0; i < 2; ++i) {
+    //     TGraph2D *shr_graph = new TGraph2D;
+    //     double x, y, shr, dist;
+    //     tree[i]->SetBranchAddress("x", &x);
+    //     tree[i]->SetBranchAddress("y", &y);
+    //     tree[i]->SetBranchAddress("shr", &shr);
+
+    //     // distブランチは使わないが、設定しないとなぜかshrにdistが入る
+    //     tree[i]->SetBranchAddress("dist", &dist);
+
+    //     for (int j = 0; j < entries[i]; ++j) {
+    //         tree[i]->GetEntry(j);
+    //         shr_graph->SetPoint(shr_graph->GetN(), x, y, shr);
+    //     }
+
+    //     c1->cd(i + 1);
+    //     gPad->SetTheta(90);
+    //     gPad->SetPhi(1.e-14);
+    //     gPad->SetGrid(0, 0);
+    //     gframe->SetTitle(";x [mm];y [mm];");
+    //     gframe->Draw("p");
+    //     shr_graph->SetMarkerStyle(21);
+    //     shr_graph->SetMarkerSize(markersize);
+    //     shr_graph->Draw("pcolzsame");
+
+    //     TLatex title;
+    //     title.SetTextAlign(22);
+    //     title.SetTextSize(0.06);
+    //     title.SetTextColor(global_darkmode ? 0 : 1);
+    //     title.DrawLatex(0.0, 0.65, Form("Shrink %d", i + 1));
+
+    //     TLine *l0, *l1, *l2, *l3;
+    //     l0 = new TLine(-0.574, -0.574, -0.574, 0.574);
+    //     l1 = new TLine(0.574, -0.574, 0.574, 0.574);
+    //     l2 = new TLine(-0.574, -0.574, 0.574, -0.574);
+    //     l3 = new TLine(-0.574, 0.574, 0.574, 0.574);
+    //     for (TLine *line : {l0, l1, l2, l3}) {
+    //         if (line) {
+    //             line->SetLineWidth(1);
+    //             line->SetLineColor(global_darkmode ? 0 : 1);
+    //             line->Draw("same");
+    //         }
+    //     }
+    // }
+
+    // 2Dヒストグラム作成
+    TH2D *shr_hist[2];
     for (int i = 0; i < 2; ++i) {
-        TGraph2D *shr_graph = new TGraph2D;
+        shr_hist[i] = new TH2D(
+            Form("shr_hist%d", i+1),
+            ";x [mm];y [mm];Shrink",
+            bin, LowX, UpX,
+            bin, LowY, UpY
+        );
+
         double x, y, shr, dist;
         tree[i]->SetBranchAddress("x", &x);
         tree[i]->SetBranchAddress("y", &y);
         tree[i]->SetBranchAddress("shr", &shr);
 
-        // distブランチは使わないが、設定しないとなぜかshrにdistが入る
+        // distブランチは使わないが、設定しないとなぜかうまくいかない
         tree[i]->SetBranchAddress("dist", &dist);
+
+        // 各ビンの合計値とカウントを保存して平均化
+        std::vector<double> sum(bin * bin, 0.0);
+        std::vector<int> count(bin * bin, 0);
 
         for (int j = 0; j < entries[i]; ++j) {
             tree[i]->GetEntry(j);
-            shr_graph->SetPoint(shr_graph->GetN(), x, y, shr);
+            int binX = shr_hist[i]->GetXaxis()->FindBin(x);
+            int binY = shr_hist[i]->GetYaxis()->FindBin(y);
+            if (binX >= 1 && binX <= bin && binY >= 1 && binY <= bin) {
+                int idx = (binY - 1) * bin + (binX - 1);
+                sum[idx] += shr;
+                count[idx] += 1;
+            }
         }
 
-        c1->cd(i + 1);
-        gPad->SetTheta(90);
-        gPad->SetPhi(1.e-14);
-        gPad->SetGrid(0, 0);
-        gframe->SetTitle(";x [mm];y [mm];");
-        gframe->Draw("p");
-        shr_graph->SetMarkerStyle(21);
-        shr_graph->SetMarkerSize(markersize);
-        shr_graph->Draw("pcolzsame");
+        // 平均値をヒストグラムにセット
+        for (int bx = 1; bx <= bin; ++bx) {
+            for (int by = 1; by <= bin; ++by) {
+                int idx = (by - 1) * bin + (bx - 1);
+                if (count[idx] > 0) {
+                    shr_hist[i]->SetBinContent(bx, by, sum[idx] / count[idx]);
+                } else {
+                    shr_hist[i]->SetBinContent(bx, by, 0);
+                }
+            }
+        }
 
+        // 描画
+        c1->cd(i + 1);
+
+        shr_hist[i]->SetMinimum(shr_range[0]);
+        shr_hist[i]->SetMaximum(shr_range[1]);
+        shr_hist[i]->Draw("colz");
+
+        // タイトル
         TLatex title;
         title.SetTextAlign(22);
         title.SetTextSize(0.06);
         title.SetTextColor(global_darkmode ? 0 : 1);
-        title.DrawLatex(0.0, 0.65, Form("Shrink %d", i + 1));
-
-        TLine *l0, *l1, *l2, *l3;
-        l0 = new TLine(-0.574, -0.574, -0.574, 0.574);
-        l1 = new TLine(0.574, -0.574, 0.574, 0.574);
-        l2 = new TLine(-0.574, -0.574, 0.574, -0.574);
-        l3 = new TLine(-0.574, 0.574, 0.574, 0.574);
-        for (TLine *line : {l0, l1, l2, l3}) {
-            if (line) {
-                line->SetLineWidth(1);
-                line->SetLineColor(global_darkmode ? 0 : 1);
-                line->Draw("same");
-            }
-        }
+        title.DrawLatexNDC((i == 0) ? 0.5 : 0.43, 0.95, Form("Shrink %d", i + 1));
     }
 
     TH1D *shr1_1D = new TH1D("shr1_1D", ";Shrink 1;Area", 100, shr_range[0], shr_range[1]);
@@ -731,8 +903,8 @@ void shr_map(TCanvas *c1, TTree *tree[2], const double *AreaParam, const std::ve
     }
 }
 
-void sig_bg_map(TCanvas *c1, TTree *tree, const double *AreaParam, double sn_max[2],
-    int32_t *entries, const double markersize) noexcept
+void sig_bg_map(TCanvas *c1, TTree *tree, const double *AreaParam,
+    double sn_max[2], int32_t *entries) noexcept
 {
     c1->Divide(2, 2);
     for (int pad = 1; pad <= 4; ++pad) {
@@ -744,6 +916,7 @@ void sig_bg_map(TCanvas *c1, TTree *tree, const double *AreaParam, double sn_max
     gStyle->SetTitleOffset(1.4, "y");
     gStyle->SetTitleOffset(1.2, "z");
 
+    double bin  = AreaParam[0];
     double LowX = AreaParam[1];
     double UpX  = AreaParam[2];
     double LowY = AreaParam[3];
@@ -754,19 +927,77 @@ void sig_bg_map(TCanvas *c1, TTree *tree, const double *AreaParam, double sn_max
     sn_max[0] = max_array[0]; // dist_shr_mapに使う
     max_array[1] = (sn_max[1] > 0.0) ? sn_max[1] : tree->GetMaximum("bg");
 
-    for (int i = 0; i < 2; ++i) {
-        TGraph2D *gframe = new TGraph2D;
-        gframe->SetPoint(0, LowX, LowY, 0);
-        gframe->SetPoint(1, UpX, UpY, 0);
-        gframe->SetMarkerColor(global_darkmode ? 1 : 0);
-        gframe->GetHistogram()->GetXaxis()->SetTickLength(-0.03);
-        gframe->GetHistogram()->GetYaxis()->SetTickLength(-0.03);
-        gframe->GetXaxis()->SetLabelOffset(0.05);
-        gframe->GetYaxis()->SetLabelOffset(0.1);
-        gframe->GetHistogram()->SetMinimum(0.0);
-        gframe->GetHistogram()->SetMaximum(max_array[i]);
+    // for (int i = 0; i < 2; ++i) {
+    //     TGraph2D *gframe = new TGraph2D;
+    //     gframe->SetPoint(0, LowX, LowY, 0);
+    //     gframe->SetPoint(1, UpX, UpY, 0);
+    //     gframe->SetMarkerColor(global_darkmode ? 1 : 0);
+    //     gframe->GetHistogram()->GetXaxis()->SetTickLength(-0.03);
+    //     gframe->GetHistogram()->GetYaxis()->SetTickLength(-0.03);
+    //     gframe->GetXaxis()->SetLabelOffset(0.05);
+    //     gframe->GetYaxis()->SetLabelOffset(0.1);
+    //     gframe->GetHistogram()->SetMinimum(0.0);
+    //     gframe->GetHistogram()->SetMaximum(max_array[i]);
 
-        TGraph2D *graph = new TGraph2D;
+    //     TGraph2D *graph = new TGraph2D;
+    //     double x, y, sig, bg, dist, shr;
+    //     tree->SetBranchAddress("x", &x);
+    //     tree->SetBranchAddress("y", &y);
+    //     tree->SetBranchAddress("sig", &sig);
+    //     tree->SetBranchAddress("bg", &bg);
+
+    //     // distブランチとshrブランチは使わないが、設定しないと出力がおかしくなる
+    //     tree->SetBranchAddress("dist", &dist);
+    //     tree->SetBranchAddress("shr", &shr);
+
+    //     for (int j = 0; j < entries[i]; ++j) {
+    //         tree->GetEntry(j);
+    //         graph->SetPoint(
+    //             graph->GetN(), x, y,
+    //             (i == 0) ? sig : bg
+    //         );
+    //     }
+
+    //     c1->cd(i + 1);
+    //     gPad->SetTheta(90);
+    //     gPad->SetPhi(1.e-14);
+    //     gPad->SetGrid(0, 0);
+    //     gframe->SetTitle(";x [mm];y [mm];");
+    //     gframe->Draw("p");
+    //     graph->SetMarkerStyle(21);
+    //     graph->SetMarkerSize(markersize);
+    //     graph->Draw("pcolzsame");
+
+    //     TLatex title;
+    //     title.SetTextAlign(22);
+    //     title.SetTextSize(0.06);
+    //     title.SetTextColor(global_darkmode ? 0 : 1);
+    //     title.DrawLatex(0.0, 0.65, (i == 0) ? "Signal" : "Background");
+
+    //     TLine *l0, *l1, *l2, *l3;
+    //     l0 = new TLine(-0.574, -0.574, -0.574, 0.574);
+    //     l1 = new TLine(0.574, -0.574, 0.574, 0.574);
+    //     l2 = new TLine(-0.574, -0.574, 0.574, -0.574);
+    //     l3 = new TLine(-0.574, 0.574, 0.574, 0.574);
+    //     for (TLine *line : {l0, l1, l2, l3}) {
+    //         if (line) {
+    //             line->SetLineWidth(1);
+    //             line->SetLineColor(global_darkmode ? 0 : 1);
+    //             line->Draw("same");
+    //         }
+    //     }
+    // }
+
+    // 2Dヒストグラム作成
+    TH2D *sn_hist[2];
+    for (int i = 0; i < 2; ++i) {
+        sn_hist[i] = new TH2D(
+            Form("sn_hist%d", i+1),
+            (i == 0) ? ";x [mm];y [mm];Signal" : ";x [mm];y [mm];Background",
+            bin, LowX, UpX,
+            bin, LowY, UpY
+        );
+
         double x, y, sig, bg, dist, shr;
         tree->SetBranchAddress("x", &x);
         tree->SetBranchAddress("y", &y);
@@ -777,42 +1008,46 @@ void sig_bg_map(TCanvas *c1, TTree *tree, const double *AreaParam, double sn_max
         tree->SetBranchAddress("dist", &dist);
         tree->SetBranchAddress("shr", &shr);
 
+        // 各ビンの合計値とカウントを保存して平均化
+        std::vector<double> sum(bin * bin, 0.0);
+        std::vector<int> count(bin * bin, 0);
+
         for (int j = 0; j < entries[i]; ++j) {
             tree->GetEntry(j);
-            graph->SetPoint(
-                graph->GetN(), x, y,
-                (i == 0) ? sig : bg
-            );
+            int binX = sn_hist[i]->GetXaxis()->FindBin(x);
+            int binY = sn_hist[i]->GetYaxis()->FindBin(y);
+            if (binX >= 1 && binX <= bin && binY >= 1 && binY <= bin) {
+                int idx = (binY - 1) * bin + (binX - 1);
+                sum[idx] += (i == 0) ? sig : bg;
+                count[idx] += 1;
+            }
         }
 
-        c1->cd(i + 1);
-        gPad->SetTheta(90);
-        gPad->SetPhi(1.e-14);
-        gPad->SetGrid(0, 0);
-        gframe->SetTitle(";x [mm];y [mm];");
-        gframe->Draw("p");
-        graph->SetMarkerStyle(21);
-        graph->SetMarkerSize(markersize);
-        graph->Draw("pcolzsame");
+        // 平均値をヒストグラムにセット
+        for (int bx = 1; bx <= bin; ++bx) {
+            for (int by = 1; by <= bin; ++by) {
+                int idx = (by - 1) * bin + (bx - 1);
+                if (count[idx] > 0) {
+                    sn_hist[i]->SetBinContent(bx, by, sum[idx] / count[idx]);
+                } else {
+                    sn_hist[i]->SetBinContent(bx, by, 0);
+                }
+            }
+        }
 
+        // 描画
+        c1->cd(i + 1);
+
+        sn_hist[i]->SetMinimum(0.0);
+        sn_hist[i]->SetMaximum(max_array[i]);
+        sn_hist[i]->Draw("colz");
+
+        // タイトル
         TLatex title;
         title.SetTextAlign(22);
         title.SetTextSize(0.06);
         title.SetTextColor(global_darkmode ? 0 : 1);
-        title.DrawLatex(0.0, 0.65, (i == 0) ? "Signal" : "Background");
-
-        TLine *l0, *l1, *l2, *l3;
-        l0 = new TLine(-0.574, -0.574, -0.574, 0.574);
-        l1 = new TLine(0.574, -0.574, 0.574, 0.574);
-        l2 = new TLine(-0.574, -0.574, 0.574, -0.574);
-        l3 = new TLine(-0.574, 0.574, 0.574, 0.574);
-        for (TLine *line : {l0, l1, l2, l3}) {
-            if (line) {
-                line->SetLineWidth(1);
-                line->SetLineColor(global_darkmode ? 0 : 1);
-                line->Draw("same");
-            }
-        }
+        title.DrawLatexNDC((i == 0) ? 0.5 : 0.43, 0.95, (i == 0) ? "Signal" : "Background");
     }
 
     TH1D *sig_1D = new TH1D("sig_1D", ";Signal;Area", 80, 0.0, max_array[0]);
