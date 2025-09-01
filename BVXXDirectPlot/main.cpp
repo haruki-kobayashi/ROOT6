@@ -39,8 +39,8 @@
 
 #include <ROOT6/MyUtil.hpp>
 #include <ROOT6/MyPalette.hpp>
-#include <ROOT6/SensorArray.hpp>
-#include <ROOT6/StderrSuppressor.hpp>
+#include <MyHeader/SensorArray.hpp>
+#include <MyHeader/StderrSuppressor.hpp>
 #include "main.hpp"
 
 namespace {
@@ -323,11 +323,6 @@ int main(int argc, char* argv[])
     auto ranking_vph_min = parser.get<int>("--ranking_vph_min");
     auto vph_standard = parser.get<int>("--vph_standard");
     auto dxyz_cutPH = parser.get<int>("--dxyz_cut_ph");
-
-    if (!parser.is_used("-param") && parser.is_used("-on") && parser.is_used("-off")) {
-        std::cerr << "\nError: -on/-off cannot be used together when the -param is not specified." << std::endl;
-        std::exit(1);
-    }
 
     std::vector<std::vector<RankingParams>> ranking_params_vec;
 
