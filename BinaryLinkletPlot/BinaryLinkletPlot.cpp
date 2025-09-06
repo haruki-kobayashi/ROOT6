@@ -70,14 +70,14 @@ void difference_xy(TCanvas *c1, TTree *tree, double gap, uint32_t pl0, uint32_t 
 void difference_rl(TCanvas *c1, TTree *tree, double gap, uint32_t pl0, uint32_t pl1,
     const double angle_max, const double angle_resolution) noexcept;
 void difference_xyrl(TCanvas *c1, TTree *tree, double gap, uint32_t pl0, uint32_t pl1) noexcept;
+void md_oa(TCanvas *c1, TTree *tree, uint8_t pl0, const size_t entries,
+    const double angle_max, const double angle_resolution) noexcept;
 void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double> &angle_list,
     int start_num, std::vector<double> &mean, std::vector<double> &sigma, std::vector<double> &sigma_err,
     bool &noEntries, double gap, uint32_t pl0, uint32_t pl1) noexcept;
 void deviation(TCanvas *c1, TTree *tree, const double angle_max, const std::vector<double> &angle_list,
     const std::vector<std::vector<double>> &sigma, const std::vector<std::vector<double>> &sigma_err,
     double gap, uint8_t pl0, bool xy, bool dividedSqrt2) noexcept;
-void md_oa(TCanvas *c1, TTree *tree, uint8_t pl0, const size_t entries,
-    const double angle_max, const double angle_resolution) noexcept;
 void dxdydz(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept;
 void dxdy(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept;
 
@@ -446,29 +446,24 @@ int main(int argc, char* argv[])
     const double AreaParam[7] = {bin, LowX, UpX, LowY, UpY, bin_dxdydz, pitch};
 
     if (std::find(plot_list.begin(), plot_list.end(), "pos") != plot_list.end()) {
-        position(c1, tree, entries, pl0, 0, TD_range, AreaParam);
-        c1->Print(output.c_str()); c1->Clear();
-        gDirectory->Delete("pos*");
-        gDirectory->Delete("track_density");
-        MyUtil::ShowProgress(page, total);
-
-        position(c1, tree, entries, pl1, 1, TD_range, AreaParam);
-        c1->Print(output.c_str()); c1->Clear();
-        gDirectory->Delete("pos*");
-        gDirectory->Delete("track_density");
-        MyUtil::ShowProgress(page, total);
+        for (int i = 0; i < 2; ++i) {
+            uint32_t pl = (i == 0) ? pl0 : pl1;
+            position(c1, tree, entries, pl, i, TD_range, AreaParam);
+            c1->Print(output.c_str()); c1->Clear();
+            gDirectory->Delete("pos*");
+            gDirectory->Delete("track_density");
+            MyUtil::ShowProgress(page, total);
+        }
     }
 
     if (std::find(plot_list.begin(), plot_list.end(), "ang") != plot_list.end()) {
-        angle(c1, tree, pl0, 0, angle_max, angle_resolution);
-        c1->Print(output.c_str()); c1->Clear();
-        gDirectory->Delete("ang*");
-        MyUtil::ShowProgress(page, total);
-
-        angle(c1, tree, pl1, 1, angle_max, angle_resolution);
-        c1->Print(output.c_str()); c1->Clear();
-        gDirectory->Delete("ang*");
-        MyUtil::ShowProgress(page, total);
+        for (int i = 0; i < 2; ++i) {
+            uint32_t pl = (i == 0) ? pl0 : pl1;
+            angle(c1, tree, pl, i, angle_max, angle_resolution);
+            c1->Print(output.c_str()); c1->Clear();
+            gDirectory->Delete("ang*");
+            MyUtil::ShowProgress(page, total);
+        }
     }
 
     if (std::find(plot_list.begin(), plot_list.end(), "diff_xy") != plot_list.end()) {
@@ -1556,6 +1551,79 @@ void difference_xyrl(TCanvas *c1, TTree *tree, double gap, uint32_t pl0, uint32_
     );
 }
 
+void md_oa(TCanvas *c1, TTree *tree, uint8_t pl, const size_t entries,
+    const double angle_max, const double angle_resolution) noexcept
+{
+	gStyle->SetTitleOffset(1.2,"x");
+	gStyle->SetTitleOffset(1.3,"y");
+
+	c1->Divide(2, 2);
+    for (int pad = 1; pad <= 2; ++pad) {
+        c1->GetPad(pad)->SetRightMargin(0.15);
+        c1->GetPad(pad)->SetLeftMargin(0.15);
+        c1->GetPad(pad)->SetBottomMargin(0.13);
+    }
+    for (int pad = 3; pad <= 4; ++pad) {
+        c1->GetPad(pad)->SetRightMargin(0.15);
+        c1->GetPad(pad)->SetLeftMargin(0.15);
+        c1->GetPad(pad)->SetBottomMargin(0.15);
+    }
+
+    uint32_t angle_bin = 1 / angle_resolution * angle_max;
+    double md_range = 200;
+    double oa_range = 0.12;
+
+	TH1D* hist_md = new TH1D(
+        "hist_md", "Minimum distance;Minimum distance [#mum];Frequency", 100, 0, md_range
+    );
+	TH1D* hist_oa = new TH1D(
+        "hist_oa", "Opening angle;Opening angle [rad];Frequency", 100, 0, oa_range
+    );
+
+	c1->cd(1);
+	tree->Draw("md >> hist_md");
+
+	c1->cd(2);
+	tree->Draw("oa >> hist_oa");
+
+    TH2D* hist_md2 = new TH2D;
+    TH2D* hist_oa2 = new TH2D;
+
+    auto draw2DHistogram = [&](TH2D* hist, int pad, const char* yaxis, const char* hist_name,
+                             const TString& title) {
+        double range = (yaxis == "md") ? md_range : oa_range;
+        hist = new TH2D(
+            hist_name, title, angle_bin, 0, angle_max,
+            100, 0, range
+        );
+        c1->cd(pad);
+        const char* draw_expr = Form("%s:tan0 >> %s", yaxis, hist_name);
+        tree->Draw(draw_expr, "", "colz");
+    };
+
+    draw2DHistogram(
+        hist_md2, 3, "md", "hist_md2",
+        Form("Minimum distance;\
+        #sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}} (PL%.3d);\
+        Minimum distance [#mum]", pl)
+    );
+    draw2DHistogram(
+        hist_oa2, 4, "oa", "hist_oa2",
+        Form("Opening angle;\
+        #sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}} (PL%.3d);\
+        Opening angle [rad]", pl)
+    );
+
+    TLatex show_entries;
+    show_entries.SetTextAlign(22);
+    show_entries.SetTextSize(0.045);
+    show_entries.SetTextColor(global_darkmode ? 0 : 1);
+    for (int pad = 1; pad <= 4; ++pad) {
+        c1->cd(pad);
+        show_entries.DrawLatexNDC((pad <= 2) ? 0.75 : 0.8, 0.96, Form("Entries %d", entries));
+    }
+}
+
 void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double> &angle_list,
     int start_num, std::vector<double> &mean, std::vector<double> &sigma, std::vector<double> &sigma_err,
     bool &noEntries, double gap, uint32_t pl0, uint32_t pl1) noexcept
@@ -1804,7 +1872,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
         hist[i]->GetXaxis()->SetRangeUser(-1 * display_range, display_range);
 
         gaus->SetRange(hist[i]->GetXaxis()->GetXmin(), hist[i]->GetXaxis()->GetXmax());
-        gaus->SetLineColor(1);
+        gaus->SetLineColor(global_darkmode ? 0 : 1);
         gaus->Draw("same");
 
 		Entries[i] = hist[i]->GetEntries();
@@ -1945,79 +2013,6 @@ void deviation(TCanvas *c1, TTree *tree, const double angle_max, const std::vect
             Form("Position deviation^{ }#sigma%s ( lateral );%s (PL%.3d);\
             Position deviation^{ }#sigma (#Deltalateral [#mum] )", signdiv,
             "#sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}}", pl0), max_l, 3);
-    }
-}
-
-void md_oa(TCanvas *c1, TTree *tree, uint8_t pl, const size_t entries,
-    const double angle_max, const double angle_resolution) noexcept
-{
-	gStyle->SetTitleOffset(1.2,"x");
-	gStyle->SetTitleOffset(1.3,"y");
-
-	c1->Divide(2, 2);
-    for (int pad = 1; pad <= 2; ++pad) {
-        c1->GetPad(pad)->SetRightMargin(0.15);
-        c1->GetPad(pad)->SetLeftMargin(0.15);
-        c1->GetPad(pad)->SetBottomMargin(0.13);
-    }
-    for (int pad = 3; pad <= 4; ++pad) {
-        c1->GetPad(pad)->SetRightMargin(0.15);
-        c1->GetPad(pad)->SetLeftMargin(0.15);
-        c1->GetPad(pad)->SetBottomMargin(0.15);
-    }
-
-    uint32_t angle_bin = 1 / angle_resolution * angle_max;
-    double md_range = 200;
-    double oa_range = 0.12;
-
-	TH1D* hist_md = new TH1D(
-        "hist_md", "Minimum distance;Minimum distance [#mum];Frequency", 100, 0, md_range
-    );
-	TH1D* hist_oa = new TH1D(
-        "hist_oa", "Opening angle;Opening angle [rad];Frequency", 100, 0, oa_range
-    );
-
-	c1->cd(1);
-	tree->Draw("md >> hist_md");
-
-	c1->cd(2);
-	tree->Draw("oa >> hist_oa");
-
-    TH2D* hist_md2 = new TH2D;
-    TH2D* hist_oa2 = new TH2D;
-
-    auto draw2DHistogram = [&](TH2D* hist, int pad, const char* yaxis, const char* hist_name,
-                             const TString& title) {
-        double range = (yaxis == "md") ? md_range : oa_range;
-        hist = new TH2D(
-            hist_name, title, angle_bin, 0, angle_max,
-            100, 0, range
-        );
-        c1->cd(pad);
-        const char* draw_expr = Form("%s:tan0 >> %s", yaxis, hist_name);
-        tree->Draw(draw_expr, "", "colz");
-    };
-
-    draw2DHistogram(
-        hist_md2, 3, "md", "hist_md2",
-        Form("Minimum distance;\
-        #sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}} (PL%.3d);\
-        Minimum distance [#mum]", pl)
-    );
-    draw2DHistogram(
-        hist_oa2, 4, "oa", "hist_oa2",
-        Form("Opening angle;\
-        #sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}} (PL%.3d);\
-        Opening angle [rad]", pl)
-    );
-
-    TLatex show_entries;
-    show_entries.SetTextAlign(22);
-    show_entries.SetTextSize(0.045);
-    show_entries.SetTextColor(global_darkmode ? 0 : 1);
-    for (int pad = 1; pad <= 4; ++pad) {
-        c1->cd(pad);
-        show_entries.DrawLatexNDC((pad <= 2) ? 0.75 : 0.8, 0.96, Form("Entries %d", entries));
     }
 }
 

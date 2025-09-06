@@ -24,7 +24,7 @@ public:
     double length() const { return std::sqrt(x * x + y * y + z * z); }
 
     // 単位ベクトルに正規化
-    Vec3 normalized() const {
+    Vec3 normalize() const {
         double n = length();
         // ゼロ除算を避ける
         return (n < 1e-10) ? Vec3{0, 0, 0} : Vec3{x / n, y / n, z / n};

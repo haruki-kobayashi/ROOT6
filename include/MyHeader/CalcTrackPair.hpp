@@ -76,8 +76,8 @@ namespace CalcTrackPair
         Vec3 diff = posV1 - posV0;
 
         // 中間面に外挿した位置ベクトル
-        double coef0 = (mid - posV0).dot(diff) / dirV0.dot(diff);
-        double coef1 = (mid - posV1).dot(diff) / dirV1.dot(diff);
+        double coef0 = -1 * (mid - posV0).dot(diff) / dirV0.dot(diff);
+        double coef1 = -1 * (mid - posV1).dot(diff) / dirV1.dot(diff);
         Vec3 ext0 = posV0 + (dirV0 * coef0);
         Vec3 ext1 = posV1 + (dirV1 * coef1);
 
