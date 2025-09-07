@@ -81,6 +81,10 @@ void deviation(TCanvas *c1, TTree *tree, const double angle_max, const std::vect
 void dxdydz(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept;
 void dxdy(TCanvas *c1, TTree *tree, const double *AreaParam) noexcept;
 
+enum Type {
+    dax, dx, day, dy, dar, dr, dal, dl
+};
+
 namespace {
     // Ctrl+Cで終了したときの処理用にグローバル変数を定義
     TCanvas* global_c1 = nullptr;
@@ -1016,7 +1020,7 @@ void ReadLinklet(std::string linkletfile, TTree* tree, TTree* subtree,
     // TTreeのブランチを作成
     uint8_t ph0, ph1;
     uint32_t vph0, vph1;
-    double x0, x1, y0, y1, ax0, ax1, ay0, ay1, tan0, tan1, ar, al, dx, dy, dz, dax, day, dr, dl, md, oa;
+    double x0, x1, y0, y1, ax0, ax1, ay0, ay1, tan0, tan1, dar, dal, dx, dy, dz, dax, day, dr, dl, md, oa;
     // tree
     const std::array<std::pair<const char*, void*>, 2> uint8Branches = {{
         {"ph0", &ph0}, {"ph1", &ph1}
@@ -1033,7 +1037,7 @@ void ReadLinklet(std::string linkletfile, TTree* tree, TTree* subtree,
     const std::array<std::pair<const char*, void*>, 21> doubleBranches = {{
         {"x0", &x0}, {"x1", &x1}, {"y0", &y0}, {"y1", &y1},
         {"ax0", &ax0}, {"ax1", &ax1}, {"ay0", &ay0}, {"ay1", &ay1},
-        {"tan0", &tan0}, {"tan1", &tan1}, {"ar", &ar}, {"al", &al},
+        {"tan0", &tan0}, {"tan1", &tan1}, {"dar", &dar}, {"dal", &dal},
         {"dx", &dx}, {"dy", &dy}, {"dz", &dz}, {"dax", &dax}, {"day", &day},
         {"dr", &dr}, {"dl", &dl}, {"md", &md}, {"oa", &oa}
     }};
@@ -1140,33 +1144,29 @@ void ReadLinklet(std::string linkletfile, TTree* tree, TTree* subtree,
         vph1 = static_cast<uint32_t>(l.b[1].m[0].ph % 10000 + l.b[1].m[1].ph % 10000);
 
         for (size_t i = 0; i < cutPH0ang.size() - 1; ++i) {
-        if (tan0 >= cutPH0ang[i] && tan0 < cutPH0ang[i + 1] &&
-            ph0 < cutPH0th[i]) return;
+            if (tan0 >= cutPH0ang[i] && tan0 < cutPH0ang[i + 1] && ph0 < cutPH0th[i]) return;
         }
         for (size_t i = 0; i < cutPH1ang.size() - 1; ++i) {
-        if (tan1 >= cutPH1ang[i] && tan1 < cutPH1ang[i + 1] &&
-            ph1 < cutPH1th[i]) return;
+            if (tan1 >= cutPH1ang[i] && tan1 < cutPH1ang[i + 1] && ph1 < cutPH1th[i]) return;
         }
         for (size_t i = 0; i < cutVPH0ang.size() - 1; ++i) {
-        if (tan0 >= cutVPH0ang[i] && tan0 < cutVPH0ang[i + 1] &&
-            vph0 < cutVPH0th[i]) return;
+            if (tan0 >= cutVPH0ang[i] && tan0 < cutVPH0ang[i + 1] && vph0 < cutVPH0th[i]) return;
         }
         for (size_t i = 0; i < cutVPH1ang.size() - 1; ++i) {
-        if (tan1 >= cutVPH1ang[i] && tan1 < cutVPH1ang[i + 1] &&
-            vph1 < cutVPH1th[i]) return;
+            if (tan1 >= cutVPH1ang[i] && tan1 < cutVPH1ang[i + 1] && vph1 < cutVPH1th[i]) return;
         }
 
         dax = ax1 - ax0;
         day = ay1 - ay0;
 
-        ar = (dax * ax0 + day * ay0) / tan0;
+        dar = CalcTrackPair::RadialAngleDifference(l.b[0], l.b[1]);
         if (cutDar.size() >= 2 && (cutDar[0] != 0.0 || cutDar[1] != 0.0)) {
             double allowed_dar = cutDar[0] * tan0 + cutDar[1];
-            if (std::abs(ar) > allowed_dar) return;
+            if (std::abs(dar) > allowed_dar) return;
         }
-        al = (dax * ay0 - day * ax0) / tan0;
+        dal = CalcTrackPair::LateralAngleDifference(l.b[0], l.b[1]);
         if (cutDal > 0.0) {
-            if (std::abs(al) > cutDal) return;
+            if (std::abs(dal) > cutDal) return;
         }
 
         dx = l.dx;
@@ -1464,14 +1464,14 @@ void difference_rl(TCanvas *c1, TTree *tree, double gap, uint32_t pl0, uint32_t 
     };
 
     drawHistogram(
-        "ar:tan0", "angdiff_r",
+        "dar:tan0", "angdiff_r",
         Form("Angle difference radial;\
             #sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}} (PL%.3d);\
             #Deltatan#it{#theta}_{radial} (PL%.3d#minus PL%.3d)", pl0, pl1, pl0),
         1, angle_bin, 0, angle_max, 200, -ang_range_r, ang_range_r
     );
     drawHistogram(
-        "al:tan0", "angdiff_l",
+        "dal:tan0", "angdiff_l",
         Form("Angle difference lateral;\
             #sqrt{tan^{2}#it{#theta}_{x} #plus tan^{2}#it{#theta}_{y}} (PL%.3d);\
             #Deltatan#it{#theta}_{lateral} (PL%.3d#minus PL%.3d)", pl0, pl1, pl0),
@@ -1529,7 +1529,7 @@ void difference_xyrl(TCanvas *c1, TTree *tree, double gap, uint32_t pl0, uint32_
         1, 100, -ang_max_xy, ang_max_xy, 100, -ang_max_xy, ang_max_xy
     );
     draw2DHist(
-        "ar:al",
+        "dar:dal",
         "angdiff_rl",
         Form("Angle difference rl;#Deltatan#it{#theta}_{lateral} (PL%.3d#minus PL%.3d);\
             #Deltatan#it{#theta}_{radial} (PL%.3d#minus PL%.3d)", pl1, pl0, pl1, pl0),
@@ -1637,14 +1637,14 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
 
 	// formula
     switch (type) {
-        case 0: formula = "dax"; break;
-        case 1: formula = "dx"; break;
-        case 2: formula = "day"; break;
-        case 3: formula = "dy"; break;
-        case 4: formula = "ar"; break;
-        case 5: formula = "dr"; break;
-        case 6: formula = "al"; break;
-        case 7: formula = "dl"; break;
+        case dax: formula = "dax"; break;
+        case dx: formula = "dx"; break;
+        case day: formula = "day"; break;
+        case dy: formula = "dy"; break;
+        case dar: formula = "dar"; break;
+        case dr: formula = "dr"; break;
+        case dal: formula = "dal"; break;
+        case dl: formula = "dl"; break;
         default: formula = ""; break;
     }
 
@@ -1671,7 +1671,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
 
 		// histgram range, title, angle range
         switch (type) {
-            case 0: // ax
+            case dax:
                 histcolor = 90;
                 if (gap < 3000)
                     range = 0.012 * ang_up * ang_up + 0.03 * ang_up + 0.01;
@@ -1681,7 +1681,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
                     #Deltatan#it{#theta}_{x} (PL%.3d#minus PL%.3d);", ang_low, pl0, ang_up, pl1, pl0);
                 angle_cut = Form("TMath::Abs(ax0)>=%.1f&&TMath::Abs(ax0)<%.1f", ang_low, ang_up);
                 break;
-            case 1: // x
+            case dx:
                 histcolor = 91;
                 if (gap < 3000)
                     range = (0.0056 * ang_up * ang_up + 0.040 * ang_up + 0.007) * gap;
@@ -1691,7 +1691,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
                     #Deltax [#mum] (PL%.3d#minus PL%.3d);", ang_low, pl0, ang_up, pl1, pl0);
                 angle_cut = Form("TMath::Abs(ax0)>=%.1f&&TMath::Abs(ax0)<%.1f", ang_low, ang_up);
                 break;
-            case 2: // ay
+            case day:
                 histcolor = 90;
                 if (gap < 3000)
                     range = 0.012 * ang_up * ang_up + 0.03 * ang_up + 0.01;
@@ -1701,7 +1701,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
                     #Deltatan#it{#theta}_{y} (PL%.3d#minus PL%.3d);", ang_low, pl0, ang_up, pl1, pl0);
                 angle_cut = Form("TMath::Abs(ay0)>=%.1f&&TMath::Abs(ay0)<%.1f", ang_low, ang_up);
                 break;
-            case 3: // y
+            case dy:
                 histcolor = 91;
                 if (gap < 3000)
                     range = (0.0063 * ang_up * ang_up + 0.03 * ang_up + 0.018) * gap;
@@ -1711,7 +1711,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
                     #Deltay [#mum] (PL%.3d#minus PL%.3d);", ang_low, pl0, ang_up, pl1, pl0);
                 angle_cut = Form("TMath::Abs(ay0)>=%.1f&&TMath::Abs(ay0)<%.1f", ang_low, ang_up);
                 break;
-            case 4: // ar
+            case dar:
                 histcolor = 90;
                 if (gap < 3000)
                     range = 0.012 * ang_up * ang_up + 0.03 * ang_up + 0.01;
@@ -1723,7 +1723,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
                     ang_low, sqrt_tan, pl0, ang_up, pl1, pl0);
                 angle_cut = Form("tan0>=%.1f&&tan0<%.1f", ang_low, ang_up);
                 break;
-            case 5: // r
+            case dr:
                 histcolor = 91;
                 if (gap < 3000)
                     range = (0.007 * ang_up + 0.02) * gap;
@@ -1734,7 +1734,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
                     ang_low, sqrt_tan, pl0, ang_up, pl1, pl0);
                 angle_cut = Form("tan0>=%.1f&&tan0<%.1f", ang_low, ang_up);
                 break;
-            case 6: // al
+            case dal:
                 histcolor = 90;
                 if (gap < 3000)
                     range = 0.001 * ang_up * ang_up + 0.0005 * ang_up + 0.015;
@@ -1745,7 +1745,7 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
                     ang_low, sqrt_tan, pl0, ang_up, pl1, pl0);
                 angle_cut = Form("tan0>=%.1f&&tan0<%.1f", ang_low, ang_up);
                 break;
-            case 7: // l
+            case dl:
                 histcolor = 91;
                 if (gap < 3000)
                     range = (0.0007 * ang_up + 0.0107) * gap;
@@ -1784,28 +1784,28 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
 
 		// first fitting range
         switch (type) {
-            case 0: // ax
+            case dax:
                 fit_range *= (ang_low < 2.0) ? 1.5 : 2.0;
                 break;
-            case 1: // x
+            case dx:
                 fit_range *= (ang_low < 2.0) ? 1.5 : 2.0;
                 break;
-            case 2: // ay
+            case day:
                 if (ang_low > 0.3) fit_range *= 1.5;
                 break;
-            case 3: // y
+            case dy:
                 if (ang_low > 0.9) fit_range *= 1.5;
                 break;
-            case 4: // ar
+            case dar:
                 fit_range *= 1.5;
                 break;
-            case 5: // r
+            case dr:
                 fit_range *= 1.5;
                 break;
-            case 6: // al
+            case dal:
                 if (ang_low < 0.3) fit_range *= 2.0;
                 break;
-            case 7: // l
+            case dl:
                 fit_range *= 1.5;
                 break;
             default:
@@ -1824,34 +1824,34 @@ void difference_1D(TCanvas *c1, TTree *tree, int type, const std::vector<double>
 			fit_center = mean[n];
 
             switch (type) {
-                case 0: // ax
+                case dax:
                     if (ang_low < 2.0) fit_range *= 1.5;
                     else fit_range *= 2.0;
                     break;
-                case 1: // x
+                case dx:
                     if (ang_low < 2.0) fit_range *= 1.5;
                     else fit_range *= 2.0;
                     break;
-                case 2: // ay
+                case day:
                     if (ang_low > 0.3) fit_range *= 1.5;
                     break;
-                case 3: // y
+                case dy:
                     if (ang_low < 0.1 && hist[i]->GetStdDev() > 20) fit_range *= -0.15 * j + 1.0;
                     else if (ang_low < 0.6 && hist[i]->GetStdDev() > 25) fit_range *= 1.0;
                     else if (ang_low < 1.0 && hist[i]->GetStdDev() > 25) fit_range *= 1.2;
                     else fit_range *= 1.5;
                     break;
-                case 4: // ar
+                case dar:
                     fit_range *= 1.5;
                     break;
-                case 5: // r
+                case dr:
                     fit_range *= 1.5;
                     break;
-                case 6: // al
+                case dal:
                     if (ang_low < 0.3) fit_range *= 2.0;
                     else fit_range *= 1.2;
                     break;
-                case 7: // l
+                case dl:
                     fit_range *= 1.2;
                     break;
             }
