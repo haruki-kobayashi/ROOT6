@@ -30,8 +30,8 @@ namespace NinjaFormat
 			dx = b[0].x - b[1].x;
 			dy = b[0].y - b[1].y;
 			double tan_theta = std::sqrt(b[0].ax*b[0].ax + b[0].ay*b[0].ay);
-			dar = (dax*b[0].ax + day*b[0].ay) / tan_theta;
-			dal = (dax*b[0].ay - day*b[0].ax) / tan_theta;
+			dar = CalcTrackPair::RadialAngleDifference(b[0], b[1]);
+			dal = CalcTrackPair::LateralAngleDifference(b[0], b[1]);
 			dr = CalcTrackPair::RadialDistance(b[0], b[1]);
 			dl = CalcTrackPair::LateralDistance(b[0], b[1]);
 		};
