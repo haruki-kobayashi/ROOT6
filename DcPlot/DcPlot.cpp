@@ -68,9 +68,9 @@ void parse_arguments(argparse::ArgumentParser& parser, int argc, char *argv[]) {
     parser.add_description("Tips: You can combine single-character arguments.\n"
         "      For example, \"-d -p kBird -i\" is equivalent to \"-dpi kBird\".");
 
-    // 必須引数: bvxxファイル
+    // 必須引数: dcファイル
     parser.add_argument("input_dc")
-        .help("Path to the bvxx file to be processed.")
+        .help("Path to the dc file to be processed.")
         .required();
     // オプション引数: 出力ファイル名
     parser.add_argument("-o", "--output")
