@@ -329,7 +329,7 @@ int main(int argc, char *argv[])
 
 	// プログレスバーの初期化
 	int page = 0;
-    constexpr int total = 10; // 合計ページ数
+    constexpr int total = 6; // 合計ページ数
 	MyUtil::ShowProgress(page, total);
 
     // データの座標の範囲を取得し、表示範囲とビンの数を決定する
