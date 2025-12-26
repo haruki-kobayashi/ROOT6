@@ -26,6 +26,7 @@
 #include <TLatex.h>
 #include <TLine.h>
 #include <TEllipse.h>
+#include <TGaxis.h>
 
 #define FMT_HEADER_ONLY
 #include <fmt/core.h>
@@ -46,13 +47,13 @@ void shift_xy(TCanvas *c1, TTree *tree, const double *AreaParam,
     double resolution, double arr, double ref, TTree *tree2, TGraph *dxdy_graph[4]) noexcept;
 void shift_xys(TCanvas *c1, TTree *tree2, const double *AreaParam, uint32_t entries,
     double resolution, TGraph *dxdy_graph[4]) noexcept;
-void rms_xy_map(TCanvas *c1, TTree *tree, const double *AreaParam,
+void rms_xy(TCanvas *c1, TTree *tree, const double *AreaParam,
     const uint32_t pl[2], uint32_t entries) noexcept;
 void shift_axay(TCanvas *c1, TTree *tree, const double *AreaParam,
     const uint32_t pl[2], uint32_t entries, const Affine& afa_g,
     double resolution, double arr, double ref) noexcept;
 void shift_axays(TCanvas *c1, TTree *tree, const double *AreaParam, uint32_t entries) noexcept;
-void rms_axay_map(TCanvas *c1, TTree *tree, const double *AreaParam,
+void rms_axay(TCanvas *c1, TTree *tree, const double *AreaParam,
     const uint32_t pl[2], uint32_t entries) noexcept;
 
 namespace {
@@ -498,7 +499,7 @@ int main(int argc, char *argv[])
     }
     gDirectory->Delete("shift*");
 
-    rms_xy_map(c1, tree, AreaParam, pl, lentries);
+    rms_xy(c1, tree, AreaParam, pl, lentries);
     c1->Print(output.c_str()); c1->Clear();
     MyUtil::ShowProgress(page, total);
     gDirectory->Delete("rms*");
@@ -513,7 +514,7 @@ int main(int argc, char *argv[])
     MyUtil::ShowProgress(page, total);
     gDirectory->Delete("shift*");
 
-    rms_axay_map(c1, tree, AreaParam, pl, lentries);
+    rms_axay(c1, tree, AreaParam, pl, lentries);
     c1->Print(output.c_str()); c1->Clear();
     MyUtil::ShowProgress(page, total);
     gDirectory->Delete("rms*");
@@ -1420,7 +1421,7 @@ void shift_xys(TCanvas *c1, TTree *tree2, const double *AreaParam, uint32_t entr
     gdy_y->Draw("AP");
 }
 
-void rms_xy_map(TCanvas *c1, TTree *tree, const double *AreaParam,
+void rms_xy(TCanvas *c1, TTree *tree, const double *AreaParam,
     const uint32_t pl[2], uint32_t entries) noexcept
 {
     c1->Divide(2, 2);
@@ -1455,7 +1456,7 @@ void rms_xy_map(TCanvas *c1, TTree *tree, const double *AreaParam,
     title2->SetTextColor(global_darkmode ? 0 : 1);
     title2->DrawLatexNDC(0.5, 0.95, fmt::format("RMS y PL{:03d}-PL{:03d}", pl[0], pl[1]).c_str());
 
-    // 1Dヒストグラム作成（範囲は2DのZ軸レンジに同期）
+    // 1Dヒストグラム作成
     TH1D *rmsx_1D = new TH1D("rmsx_1D", ";RMS x;Area", 10000, 0.0, 1000.0);
     TH1D *rmsy_1D = new TH1D("rmsy_1D", ";RMS y;Area", 10000, 0.0, 1000.0);
 
@@ -1768,7 +1769,7 @@ void shift_axays(TCanvas *c1, TTree *tree, const double *AreaParam, uint32_t ent
     gday_y->Draw("AP");
 }
 
-void rms_axay_map(TCanvas *c1, TTree *tree, const double *AreaParam,
+void rms_axay(TCanvas *c1, TTree *tree, const double *AreaParam,
     const uint32_t pl[2], uint32_t entries) noexcept
 {
     c1->Divide(2, 2);
@@ -1776,6 +1777,8 @@ void rms_axay_map(TCanvas *c1, TTree *tree, const double *AreaParam,
         c1->GetPad(pad)->SetRightMargin((pad % 2 == 0) ? 0.3 : 0.235);
         c1->GetPad(pad)->SetLeftMargin((pad % 2 == 0) ? 0.165 : 0.23);
     }
+
+    TGaxis::SetMaxDigits(3);
 
     gStyle->SetTitleOffset(1.4, "x");
     gStyle->SetTitleOffset(1.4, "y");
@@ -1812,9 +1815,25 @@ void rms_axay_map(TCanvas *c1, TTree *tree, const double *AreaParam,
         }
     }
 
-    double rms_max = std::max(tree->GetMaximum("rms_ax"), tree->GetMaximum("rms_ay")) + 0.2;
+    TH1D *rmsax_temp = new TH1D("rmsax_temp", "", 10000000, 0.0, 1000.0);
+    TH1D *rmsay_temp = new TH1D("rmsay_temp", "", 10000000, 0.0, 1000.0);
+    tree->Draw("rms_ax >> rmsax_temp", "rms_ax > 0", "goff");
+    tree->Draw("rms_ay >> rmsay_temp", "rms_ay > 0", "goff");
+    double rms_stddev = std::max(rmsax_temp->GetStdDev(), rmsay_temp->GetStdDev());
+    double rms_max = std::max(tree->GetMaximum("rms_ax"), tree->GetMaximum("rms_ay")) + rms_stddev;
+    // rmsの最小単位が0.0001のため、1binが0.0001未満にならないように調整
+    int rms_bin = (rms_max < 0.01) ? std::floor(rms_max / 0.0001) : 100;
+    gDirectory->Delete("*_temp");
+
     rmsax_2D->GetZaxis()->SetRangeUser(0.0, rms_max);
     rmsay_2D->GetZaxis()->SetRangeUser(0.0, rms_max);
+
+    // 1Dヒストグラム作成
+    TH1D *rmsax_1D = new TH1D("rmsax_1D", ";RMS#it{#theta}_{x} [mrad];Area", rms_bin, 0.0, rms_max);
+    TH1D *rmsay_1D = new TH1D("rmsay_1D", ";RMS#it{#theta}_{y} [mrad];Area", rms_bin, 0.0, rms_max);
+
+    tree->Draw("rms_ax >> rmsax_1D", "rms_ax > 0", "goff");
+    tree->Draw("rms_ay >> rmsay_1D", "rms_ay > 0", "goff");
 
     // pad1: RMS ax 2D分布
     c1->cd(1);
@@ -1835,13 +1854,6 @@ void rms_axay_map(TCanvas *c1, TTree *tree, const double *AreaParam,
     title2->SetTextColor(global_darkmode ? 0 : 1);
     title2->DrawLatexNDC(0.43, 0.95,
         fmt::format("RMS#it{{#theta}}_{{y}} PL{:03d}-PL{:03d}", pl[0], pl[1]).c_str());
-
-    // 1Dヒストグラム作成（範囲は2DのZ軸レンジに同期）
-    TH1D *rmsax_1D = new TH1D("rmsax_1D", ";RMS#it{#theta}_{x} [mrad];Area", 100000, 0.0, 1000.0);
-    TH1D *rmsay_1D = new TH1D("rmsay_1D", ";RMS#it{#theta}_{y} [mrad];Area", 100000, 0.0, 1000.0);
-
-    tree->Draw("rms_ax >> rmsax_1D", "rms_ax > 0", "goff");
-    tree->Draw("rms_ay >> rmsay_1D", "rms_ay > 0", "goff");
 
     // pad3: RMS ax 1D
     c1->cd(3);
@@ -1864,8 +1876,8 @@ void rms_axay_map(TCanvas *c1, TTree *tree, const double *AreaParam,
 
     lg1->SetTextColor(global_darkmode ? 0 : 1);
     lg1->AddEntry(rmsax_1D, fmt::format("{} areas", entries).c_str(), "");
-    lg1->AddEntry(rmsax_1D, fmt::format("Mean      {:.2f}", rmsax_1D->GetMean()).c_str(), "");
-    lg1->AddEntry(rmsax_1D, fmt::format("Std Dev   {:.2f}", rmsax_1D->GetStdDev()).c_str(), "");
+    lg1->AddEntry(rmsax_1D, fmt::format("Mean      {:.2g}", rmsax_1D->GetMean()).c_str(), "");
+    lg1->AddEntry(rmsax_1D, fmt::format("Std Dev   {:.2g}", rmsax_1D->GetStdDev()).c_str(), "");
     lg1->Draw();
 
     // pad4: RMS ay 1D
@@ -1888,7 +1900,7 @@ void rms_axay_map(TCanvas *c1, TTree *tree, const double *AreaParam,
     lg2->SetTextSize(0.04);
     lg2->SetTextColor(global_darkmode ? 0 : 1);
     lg2->AddEntry(rmsay_1D, fmt::format("{} areas", entries).c_str(), "");
-    lg2->AddEntry(rmsay_1D, fmt::format("Mean      {:.2f}", rmsay_1D->GetMean()).c_str(), "");
-    lg2->AddEntry(rmsay_1D, fmt::format("Std Dev   {:.2f}", rmsay_1D->GetStdDev()).c_str(), "");
+    lg2->AddEntry(rmsay_1D, fmt::format("Mean      {:.2g}", rmsay_1D->GetMean()).c_str(), "");
+    lg2->AddEntry(rmsay_1D, fmt::format("Std Dev   {:.2g}", rmsay_1D->GetStdDev()).c_str(), "");
     lg2->Draw();
 }
