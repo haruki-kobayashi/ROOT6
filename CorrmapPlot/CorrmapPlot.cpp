@@ -170,7 +170,7 @@ int main(int argc, char *argv[])
 
     // argparseを使用して引数を解析
     std::cout << "\nInitializing..." << std::endl;
-    argparse::ArgumentParser parser("DcPlot.exe", "1.0.0");
+    argparse::ArgumentParser parser("CorrmapPlot.exe", "1.0.0");
     parse_arguments(parser, argc, argv);
 
     // 引数を取得
