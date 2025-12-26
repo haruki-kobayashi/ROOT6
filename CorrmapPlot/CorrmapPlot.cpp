@@ -403,11 +403,11 @@ int main(int argc, char *argv[])
     }
 
     // 情報表示
-    std::cout << "\n Local File  : " << localfile << std::endl;
-    std::cout << " Global File : " << globalfile << std::endl;
-    std::cout << " Arrow       : " << fmt::format("{:.1f}", arr) << std::endl;
-    std::cout << " Resolution  : " << fmt::format("{:.1f}", resolution) << std::endl;
-    std::cout << " # of Areas  : " << lentries << std::endl;
+    std::cout << "\n Local File   : " << localfile << std::endl;
+    std::cout << " Global File  : " << globalfile << std::endl;
+    std::cout << " Arrow Length : x " << fmt::format("{:.2f}", arr) << std::endl;
+    std::cout << " Resolution   : x " << fmt::format("{:.2f}", resolution) << std::endl;
+    std::cout << " # of Areas   : " << lentries << std::endl;
 
     // プロット開始
     TDatime time_now;
@@ -417,7 +417,7 @@ int main(int argc, char *argv[])
         time_now.GetHour(), time_now.GetMinute(), time_now.GetSecond()
     );
     sw.Start();
-	std::cout << " Plot start  : " << Time_Now << std::endl;
+	std::cout << " Plot start   : " << Time_Now << std::endl;
 
     // キャンバスとPDFファイルの作成
     gStyle->SetPaperSize(TStyle::kA4);
@@ -534,10 +534,10 @@ int main(int argc, char *argv[])
     double elapsed_time = sw.RealTime();
     double cpu_time = sw.CpuTime();
     std::cout << fmt::format(
-        "\n Plot end    : {} - Elapsed {:.2f} [s] (CPU: {:.2f} [s])",
+        "\n Plot end     : {} - Elapsed {:.2f} [s] (CPU: {:.2f} [s])",
         Time_Now, elapsed_time, cpu_time
     ) << std::endl;
-    std::cout << " Output      : " << output << std::endl;
+    std::cout << " Output       : " << output << std::endl;
 
     delete c1;
     gDirectory->Delete("tree");
@@ -1051,9 +1051,9 @@ void dz_rms(TCanvas *c1, TTree *tree, const double *AreaParam,
     TH1D *dz_temp = new TH1D("dz_temp", "", 200000, -100000, 100000);
     tree->Draw("dz >> dz_temp", "", "goff");
     double dz_mean = dz_temp->GetMean();
-    double dz_3sigma = 3 * dz_temp->GetStdDev();
-    double range_low = dz_mean - dz_3sigma;
-    double range_up  = dz_mean + dz_3sigma;
+    double dz_stddev = dz_temp->GetStdDev();
+    double range_low = std::max(dz_mean - 5 * dz_stddev, tree->GetMinimum("dz") - dz_stddev);
+    double range_up  = std::min(dz_mean + 5 * dz_stddev, tree->GetMaximum("dz") + dz_stddev);
     gDirectory->Delete("dz_temp");
 
     TH1D *dz_1D = new TH1D("dz_1D", ";dz;Area", 50, range_low, range_up);
