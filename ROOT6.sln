@@ -15,6 +15,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DcPlot", "DcPlot\DcPlot.vcx
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BinaryLinkletPlot", "BinaryLinkletPlot\BinaryLinkletPlot.vcxproj", "{C47FB97C-CB1A-4BDC-932D-424EB2388E9B}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CorrmapPlot", "CorrmapPlot\CorrmapPlot.vcxproj", "{1668E91F-7FD0-4210-98C1-84E73A0ABB58}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -58,6 +60,12 @@ Global
 		{C47FB97C-CB1A-4BDC-932D-424EB2388E9B}.Release|x64.ActiveCfg = Release|x64
 		{C47FB97C-CB1A-4BDC-932D-424EB2388E9B}.Release|x64.Build.0 = Release|x64
 		{C47FB97C-CB1A-4BDC-932D-424EB2388E9B}.Release|x86.ActiveCfg = Release|x64
+		{1668E91F-7FD0-4210-98C1-84E73A0ABB58}.Debug|x64.ActiveCfg = Release|x64
+		{1668E91F-7FD0-4210-98C1-84E73A0ABB58}.Debug|x86.ActiveCfg = Release|Win32
+		{1668E91F-7FD0-4210-98C1-84E73A0ABB58}.Release|x64.ActiveCfg = Release|x64
+		{1668E91F-7FD0-4210-98C1-84E73A0ABB58}.Release|x64.Build.0 = Release|x64
+		{1668E91F-7FD0-4210-98C1-84E73A0ABB58}.Release|x86.ActiveCfg = Release|Win32
+		{1668E91F-7FD0-4210-98C1-84E73A0ABB58}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
