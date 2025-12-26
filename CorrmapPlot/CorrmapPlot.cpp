@@ -961,7 +961,7 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
         ellipse->Draw("same");
     }
 
-    TLegend *lg2 = new TLegend(0.76, 0.7, 0.93, 0.98);
+    TLegend *lg2 = new TLegend(0.73, 0.7, 0.93, 0.98);
     lg2->SetFillStyle(0);
     lg2->SetBorderSize(0);
     lg2->SetTextSize(0.04);
