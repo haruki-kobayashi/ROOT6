@@ -707,8 +707,8 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
     std::vector<double> sum(bin * bin, 0.0);
     std::vector<int> count(bin * bin, 0);
 
-    for (int j = 0; j < entries; ++j) {
-        tree->GetEntry(j);
+    for (int i = 0; i < entries; ++i) {
+        tree->GetEntry(i);
         int binX = bg_hist->GetXaxis()->FindBin(x);
         int binY = bg_hist->GetYaxis()->FindBin(y);
         if (binX >= 1 && binX <= bin && binY >= 1 && binY <= bin) {
@@ -843,7 +843,6 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
     // TH2Dから穴（count_data == 0）の座標を抽出
     struct HoleCell {
         double x, y;
-        int binX, binY;
     };
     std::vector<HoleCell> hole_cells;
 
@@ -854,7 +853,7 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
                 // ビンの中心座標を取得
                 double xc = hole_hist->GetXaxis()->GetBinCenter(bx);
                 double yc = hole_hist->GetYaxis()->GetBinCenter(by);
-                hole_cells.push_back({xc, yc, bx, by});
+                hole_cells.push_back({xc, yc});
             }
         }
     }
@@ -1021,8 +1020,8 @@ void dz_rms(TCanvas *c1, TTree *tree, const double *AreaParam,
     std::vector<double> sum_rmsy(bin * bin, 0.0);
     std::vector<int> count(bin * bin, 0);
 
-    for (int j = 0; j < entries; ++j) {
-        tree->GetEntry(j);
+    for (int i = 0; i < entries; ++i) {
+        tree->GetEntry(i);
         int binX = dz_2D->GetXaxis()->FindBin(x);
         int binY = dz_2D->GetYaxis()->FindBin(y);
         if (binX >= 1 && binX <= bin && binY >= 1 && binY <= bin) {
