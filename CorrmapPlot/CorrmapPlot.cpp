@@ -1450,7 +1450,7 @@ void rms_xy(TCanvas *c1, TTree *tree, const double *AreaParam,
     title2->SetTextAlign(22);
     title2->SetTextSize(0.06);
     title2->SetTextColor(global_darkmode ? 0 : 1);
-    title2->DrawLatexNDC(0.5, 0.95, fmt::format("RMS y PL{:03d}-PL{:03d}", pl[0], pl[1]).c_str());
+    title2->DrawLatexNDC(0.43, 0.95, fmt::format("RMS y PL{:03d}-PL{:03d}", pl[0], pl[1]).c_str());
 
     // 1Dヒストグラム作成
     TH1D *rmsx_1D = new TH1D("rmsx_1D", ";RMS x [#mum];Area", 10000, 0.0, 1000.0);
