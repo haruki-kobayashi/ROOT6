@@ -14,7 +14,6 @@
 #include <TError.h>
 #include <TH1D.h>
 #include <TH2D.h>
-#include <TGraph2D.h>
 #include <TGraph.h>
 #include <TStopwatch.h>
 #include <TString.h>
@@ -841,10 +840,7 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
 
     // 穴検出&クラスタリング
     // TH2Dから穴（count_data == 0）の座標を抽出
-    struct HoleCell {
-        double x, y;
-    };
-    std::vector<HoleCell> hole_cells;
+    std::vector<std::pair<double, double>> hole_cells;
 
     for (int bx = 1; bx <= bin; ++bx) {
         for (int by = 1; by <= bin; ++by) {
@@ -859,10 +855,11 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
     }
 
     int holecells = hole_cells.size();
-    if (holecells == 0) return;
 
     std::vector<bool> visited(holecells, false);
     std::vector<std::vector<int>> clusters;
+    double threshold_sq = view_width * 2.0;
+    threshold_sq *= threshold_sq;  // 距離比較を高速化するため二乗値を事前計算
 
     // Breadth-First Search (BFS)を用いて各holecellをクラスタリング
     // 2つの点のx, y方向の距離が view_width * 2.0 より近ければクラスタリングする
@@ -872,12 +869,12 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
 
     for (int i = 0; i < holecells; ++i) {
         if (visited[i]) continue;
-        visited[i] = true;
 
-        double x0 = hole_cells[i].x;
-        double y0 = hole_cells[i].y;
+        double x0 = hole_cells[i].first;
+        double y0 = hole_cells[i].second;
         if (x0 < edge_LowX || x0 > edge_UpX || y0 < edge_LowY || y0 > edge_UpY) continue;
 
+        visited[i] = true;
         std::vector<int> cluster;
         std::queue<int> q;
         q.push(i);
@@ -887,16 +884,16 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
             q.pop();
             cluster.push_back(j);
 
-            for (int k = 0; k < holecells; ++k) {
+            double x1 = hole_cells[j].first;
+            double y1 = hole_cells[j].second;
+
+            for (int k = i + 1; k < holecells; ++k) {
                 if (visited[k]) continue;
 
-                double x1 = hole_cells[j].x;
-                double y1 = hole_cells[j].y;
-                double x2 = hole_cells[k].x;
-                double y2 = hole_cells[k].y;
+                double x2 = hole_cells[k].first;
+                double y2 = hole_cells[k].second;
 
-                if (x1 < edge_LowX || x1 > edge_UpX || y1 < edge_LowY || y1 > edge_UpY ||
-                    x2 < edge_LowX || x2 > edge_UpX || y2 < edge_LowY || y2 > edge_UpY) {
+                if (x2 < edge_LowX || x2 > edge_UpX || y2 < edge_LowY || y2 > edge_UpY) {
                     continue;
                 }
 
@@ -918,9 +915,9 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
 
         // クラスター内の座標の中央値を計算
         std::vector<double> x_vals, y_vals;
-        for (size_t j = 0; j < cluster.size(); ++j) {
-            x_vals.push_back(hole_cells[cluster[j]].x);
-            y_vals.push_back(hole_cells[cluster[j]].y);
+        for (int idx : cluster) {
+            x_vals.push_back(hole_cells[idx].first);
+            y_vals.push_back(hole_cells[idx].second);
         }
 
         std::sort(x_vals.begin(), x_vals.end());
@@ -941,9 +938,9 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
         if (cluster.size() == 1) {
             dist_max = 0.5 * view_width + 5.0;
         } else {
-            for (size_t j = 0; j < cluster.size(); ++j) {
-                double x = hole_cells[cluster[j]].x;
-                double y = hole_cells[cluster[j]].y;
+            for (int idx : cluster) {
+                double x = hole_cells[idx].first;
+                double y = hole_cells[idx].second;
                 double d = std::hypot(x - centerX, y - centerY) + 0.5 * view_width + 5.0;
                 if (d > dist_max) dist_max = d;
             }
@@ -966,7 +963,7 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
     lg2->SetBorderSize(0);
     lg2->SetTextSize(0.04);
     lg2->SetTextColor(global_darkmode ? 0 : 1);
-    lg2->AddEntry(bg_1D, fmt::format("Edge cut: {0:.1f} mm", edgecut).c_str(), "");
+    lg2->AddEntry(bg_1D, fmt::format("Edge cut: {:.1f} mm", edgecut).c_str(), "");
     c1->cd(1);
     lg2->Draw();
     c1->cd(3);
