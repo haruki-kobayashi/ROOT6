@@ -785,7 +785,7 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
         bin, LowY, UpY
     );
 
-    std::vector<int> count_data(bin * bin, 0);
+    std::vector<bool> has_data(bin * bin, false);
 
     for (int i = 0; i < entries; ++i) {
         tree->GetEntry(i);
@@ -793,7 +793,7 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
         int binY = hole_hist->GetYaxis()->FindBin(y);
         if (binX >= 1 && binX <= bin && binY >= 1 && binY <= bin) {
             int idx = (binY - 1) * bin + (binX - 1);
-            count_data[idx] += 1;
+            has_data[idx] = true;
         }
     }
 
@@ -801,7 +801,7 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
     for (int bx = 1; bx <= bin; ++bx) {
         for (int by = 1; by <= bin; ++by) {
             int idx = (by - 1) * bin + (bx - 1);
-            if (count_data[idx] > 0) {
+            if (has_data[idx]) {
                 hole_hist->SetBinContent(bx, by, 1);
             } else {
                 hole_hist->SetBinContent(bx, by, 0);
@@ -839,13 +839,13 @@ void bg_hole(TCanvas *c1, TTree *tree, const double *AreaParam, const uint32_t p
     }
 
     // 穴検出&クラスタリング
-    // TH2Dから穴（count_data == 0）の座標を抽出
+    // TH2Dから穴（has_data == false）の座標を抽出
     std::vector<std::pair<double, double>> hole_cells;
 
     for (int bx = 1; bx <= bin; ++bx) {
         for (int by = 1; by <= bin; ++by) {
             int idx = (by - 1) * bin + (bx - 1);
-            if (count_data[idx] == 0) {
+            if (!has_data[idx]) {
                 // ビンの中心座標を取得
                 double xc = hole_hist->GetXaxis()->GetBinCenter(bx);
                 double yc = hole_hist->GetYaxis()->GetBinCenter(by);
@@ -1004,11 +1004,11 @@ void dz_rms(TCanvas *c1, TTree *tree, const double *AreaParam,
     tree->SetBranchAddress("rms_y", &rms_y);
 
     // 3つの2Dヒストグラムを作成
-    TH2D *dz_2D = new TH2D("dz_2D", ";x [mm];y [mm];dz",
+    TH2D *dz_2D = new TH2D("dz_2D", ";x [mm];y [mm];dz [#mum]",
         bin, LowX, UpX, bin, LowY, UpY);
-    TH2D *rmsx_2D = new TH2D("rmsx_2D", ";x [mm];y [mm];RMS x",
+    TH2D *rmsx_2D = new TH2D("rmsx_2D", ";x [mm];y [mm];RMS x [#mum]",
         bin, LowX, UpX, bin, LowY, UpY);
-    TH2D *rmsy_2D = new TH2D("rmsy_2D", ";x [mm];y [mm];RMS y",
+    TH2D *rmsy_2D = new TH2D("rmsy_2D", ";x [mm];y [mm];RMS y [#mum]",
         bin, LowX, UpX, bin, LowY, UpY);
 
     // 各ビンの合計値とカウントを保存して平均化
@@ -1052,7 +1052,7 @@ void dz_rms(TCanvas *c1, TTree *tree, const double *AreaParam,
     double range_up  = std::min(dz_mean + 5 * dz_stddev, tree->GetMaximum("dz") + dz_stddev);
     gDirectory->Delete("dz_temp");
 
-    TH1D *dz_1D = new TH1D("dz_1D", ";dz;Area", 50, range_low, range_up);
+    TH1D *dz_1D = new TH1D("dz_1D", ";dz [#mum];Area", 50, range_low, range_up);
     tree->Draw("dz >> dz_1D", "", "goff");
     dz_2D->GetZaxis()->SetRangeUser(range_low, range_up);
 
@@ -1453,8 +1453,8 @@ void rms_xy(TCanvas *c1, TTree *tree, const double *AreaParam,
     title2->DrawLatexNDC(0.5, 0.95, fmt::format("RMS y PL{:03d}-PL{:03d}", pl[0], pl[1]).c_str());
 
     // 1Dヒストグラム作成
-    TH1D *rmsx_1D = new TH1D("rmsx_1D", ";RMS x;Area", 10000, 0.0, 1000.0);
-    TH1D *rmsy_1D = new TH1D("rmsy_1D", ";RMS y;Area", 10000, 0.0, 1000.0);
+    TH1D *rmsx_1D = new TH1D("rmsx_1D", ";RMS x [#mum];Area", 10000, 0.0, 1000.0);
+    TH1D *rmsy_1D = new TH1D("rmsy_1D", ";RMS y [#mum];Area", 10000, 0.0, 1000.0);
 
     tree->Draw("rms_x >> rmsx_1D", "rms_x > 0", "goff");
     tree->Draw("rms_y >> rmsy_1D", "rms_y > 0", "goff");
