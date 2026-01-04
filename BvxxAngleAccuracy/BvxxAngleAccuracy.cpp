@@ -368,6 +368,12 @@ void diff_hist(
     TH1F** hist = new TH1F*[Num];
     TF1** gaus = new TF1*[Num];
 
+    // ポインタ配列を初期化
+    for (int i = 0; i < Num; ++i) {
+        hist[i] = nullptr;
+        gaus[i] = nullptr;
+    }
+
     for (int i = 0; i < Num; ++i) {
         if (i < 14) {
             // tanθ 1.4 までは 0.1 刻み
@@ -423,7 +429,9 @@ void diff_hist(
 
         c1->cd(i % 6 + 1);
         hist[i]->Draw();
-        gaus[i]->Draw("same");
+        if (gaus[i]) {
+            gaus[i]->Draw("same");
+        }
 
         if (i % 6 == 5 || i == Num - 1) {
             c1->Print(output.c_str()); c1->Clear();
