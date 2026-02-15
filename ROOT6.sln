@@ -19,6 +19,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CorrmapPlot", "CorrmapPlot\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FineCorrmapPlot", "FineCorrmapPlot\FineCorrmapPlot.vcxproj", "{353AF27E-DC64-4EC6-9CEF-77559B7A632C}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "PredEfficiencyPlot", "PredEfficiencyPlot\PredEfficiencyPlot.vcxproj", "{44BF79AA-1AB2-4E37-A272-D80C94149B84}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -74,6 +76,12 @@ Global
 		{353AF27E-DC64-4EC6-9CEF-77559B7A632C}.Release|x64.Build.0 = Release|x64
 		{353AF27E-DC64-4EC6-9CEF-77559B7A632C}.Release|x86.ActiveCfg = Release|Win32
 		{353AF27E-DC64-4EC6-9CEF-77559B7A632C}.Release|x86.Build.0 = Release|Win32
+		{44BF79AA-1AB2-4E37-A272-D80C94149B84}.Debug|x64.ActiveCfg = Release|x64
+		{44BF79AA-1AB2-4E37-A272-D80C94149B84}.Debug|x86.ActiveCfg = Release|Win32
+		{44BF79AA-1AB2-4E37-A272-D80C94149B84}.Release|x64.ActiveCfg = Release|x64
+		{44BF79AA-1AB2-4E37-A272-D80C94149B84}.Release|x64.Build.0 = Release|x64
+		{44BF79AA-1AB2-4E37-A272-D80C94149B84}.Release|x86.ActiveCfg = Release|Win32
+		{44BF79AA-1AB2-4E37-A272-D80C94149B84}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
