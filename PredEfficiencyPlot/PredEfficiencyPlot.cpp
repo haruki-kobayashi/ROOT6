@@ -203,6 +203,8 @@ void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[]) {
         .nargs(2)
         .scan<'g', double>();
 
+    parser.add_group("Other options");
+
     // オプション引数: フォント設定
     parser.add_argument("-f", "--font_number")
         .help("Font number (default: Helvetica).\n"

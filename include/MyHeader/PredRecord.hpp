@@ -610,11 +610,7 @@ public:
         }
 
         if (format == "binary") {
-            // バイナリ形式：効率的なRecord単位の書き込み
-            // レコード数（Recordの数）
-            uint32_t num_records = static_cast<uint32_t>(map.size());
-            out.write(reinterpret_cast<const char*>(&num_records), sizeof(num_records));
-
+            // バイナリ形式
             // pred列とreco列を分離
             std::vector<const ColumnSchema*> pred_cols, reco_cols;
             for (const auto& col : columns) {
@@ -767,10 +763,6 @@ private:
             uint8_t type = static_cast<uint8_t>(col->type);
             os.write(reinterpret_cast<const char*>(&type), sizeof(type));
         }
-
-        // レコード数
-        uint32_t num_records = static_cast<uint32_t>(records.size());
-        os.write(reinterpret_cast<const char*>(&num_records), sizeof(num_records));
 
         // データ: 各Recordのrecoごとに行を出力
         for (const auto& record : records) {
@@ -1016,25 +1008,11 @@ private:
             }
         }
 
-        // レコード数を読み込み（Record単位）
-        uint32_t num_records;
-        ifs.read(reinterpret_cast<char*>(&num_records), sizeof(num_records));
-
-        if (!ifs) {
-            throw std::runtime_error("Failed to read record count from binary file");
-        }
-
-        // データを読み込み
+        // ストリーミング形式：EOFまで読み込み
         std::vector<Record> records;
-        records.reserve(num_records);
 
-        for (uint32_t i = 0; i < num_records; ++i) {
-            if (!ifs) {
-                throw std::runtime_error(
-                    "Stream error before reading record "
-                    + std::to_string(i)
-            );
-            }
+        while (ifs.peek() != EOF) {
+            if (!ifs) break;  // ストリーム エラーがあればループを抜ける
 
             Record record;
             RowData row{};
@@ -1049,8 +1027,7 @@ private:
                         ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
                         if (!ifs) {
                             throw std::runtime_error(
-                                "Failed to read Int64 column at record "
-                                + std::to_string(i)
+                                "Failed to read Int64 column at record " + std::to_string(records.size())
                             );
                         }
                         if (col->set_int64) col->set_int64(val, row, dummy_reco, dummy_has_reco);
@@ -1061,8 +1038,7 @@ private:
                         ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
                         if (!ifs) {
                             throw std::runtime_error(
-                                "Failed to read Int column at record "
-                                + std::to_string(i)
+                                "Failed to read Int column at record " + std::to_string(records.size())
                             );
                         }
                         if (col->set_int) col->set_int(val, row, dummy_reco, dummy_has_reco);
@@ -1073,8 +1049,7 @@ private:
                         ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
                         if (!ifs) {
                             throw std::runtime_error(
-                                "Failed to read Double column at record "
-                                + std::to_string(i)
+                                "Failed to read Double column at record " + std::to_string(records.size())
                             );
                         }
                         if (col->set_double) col->set_double(val, row, dummy_reco, dummy_has_reco);
@@ -1085,8 +1060,7 @@ private:
                         ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
                         if (!ifs) {
                             throw std::runtime_error(
-                                "Failed to read Bool column at record "
-                                + std::to_string(i)
+                                "Failed to read Bool column at record " + std::to_string(records.size())
                             );
                         }
                         if (col->set_bool) col->set_bool(val, row, dummy_reco);
@@ -1100,7 +1074,7 @@ private:
             uint32_t num_recos;
             ifs.read(reinterpret_cast<char*>(&num_recos), sizeof(num_recos));
             if (!ifs) {
-                throw std::runtime_error("Failed to read reco count at record " + std::to_string(i));
+                throw std::runtime_error("Failed to read reco count at record " + std::to_string(records.size()));
             }
             record.recos.reserve(num_recos);
 
@@ -1116,8 +1090,8 @@ private:
                             ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
                             if (!ifs) {
                                 throw std::runtime_error(
-                                    "Failed to read reco Int64 at record "
-                                    + std::to_string(i) + ", reco " + std::to_string(j)
+                                    "Failed to read reco Int64 at record " + std::to_string(records.size())
+                                    + ", reco " + std::to_string(j)
                                 );
                             }
                             if (col->set_int64) col->set_int64(val, row, reco, has_reco);
@@ -1128,8 +1102,8 @@ private:
                             ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
                             if (!ifs) {
                                 throw std::runtime_error(
-                                    "Failed to read reco Int at record "
-                                    + std::to_string(i) + ", reco " + std::to_string(j)
+                                    "Failed to read reco Int at record " + std::to_string(records.size())
+                                    + ", reco " + std::to_string(j)
                                 );
                             }
                             if (col->set_int) col->set_int(val, row, reco, has_reco);
@@ -1140,8 +1114,8 @@ private:
                             ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
                             if (!ifs) {
                                 throw std::runtime_error(
-                                    "Failed to read reco Double at record "
-                                    + std::to_string(i) + ", reco " + std::to_string(j)
+                                    "Failed to read reco Double at record " + std::to_string(records.size())
+                                    + ", reco " + std::to_string(j)
                                 );
                             }
                             if (col->set_double) col->set_double(val, row, reco, has_reco);
@@ -1152,8 +1126,8 @@ private:
                             ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
                             if (!ifs) {
                                 throw std::runtime_error(
-                                    "Failed to read reco Bool at record "
-                                    + std::to_string(i) + ", reco " + std::to_string(j)
+                                    "Failed to read reco Bool at record " + std::to_string(records.size())
+                                    + ", reco " + std::to_string(j)
                                 );
                             }
                             if (col->set_bool) col->set_bool(val, row, reco);
