@@ -17,11 +17,6 @@
 #include <fstream>
 #include <sstream>
 #include <csignal>
-#include <set>
-#include <algorithm>
-#include <cmath>
-#include <variant>
-#include <format>
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -29,15 +24,13 @@
 #include <TCanvas.h>
 #include <TStyle.h>
 #include <TError.h>
-#include <TH1D.h>
 #include <TH2D.h>
 #include <TStopwatch.h>
 #include <TColor.h>
 #include <TLegend.h>
 #include <TLatex.h>
-#include <TEllipse.h>
 #include <TGaxis.h>
-#include <TGraphErrors.h>
+#include <TGraphAsymmErrors.h>
 
 #define FMT_HEADER_ONLY
 #include <fmt/core.h>
@@ -743,7 +736,7 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
     eff->GetYaxis()->SetRangeUser(eff_lower, eff_upper);
 
     // エラーバーの追加
-    TGraphErrors *eff_err = new TGraphErrors();
+    TGraphAsymmErrors *eff_err = new TGraphAsymmErrors();
     for (int i = 1; i <= bin_num; ++i) {
         int n_all = static_cast<int>(eff0->GetBinContent(i));
         int n_found = static_cast<int>(eff1->GetBinContent(i));
@@ -752,18 +745,16 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
             auto [ci_low, ci_high] = Confidence::wilson_interval(n_all, n_found, error_sigma);
             double err_low = efficiency - ci_low;
             double err_high = ci_high - efficiency;
-            double err = std::max(err_low, err_high);
             if (use_percent) {
                 efficiency *= 100.0;
                 err_low *= 100.0;
                 err_high *= 100.0;
-                err *= 100.0;
             }
 
             double bin_center = eff->GetBinCenter(i);
             double bin_half_width = eff->GetBinWidth(i) / 2.0;
             eff_err->SetPoint(i - 1, bin_center, efficiency);
-            eff_err->SetPointError(i - 1, bin_half_width, err);
+            eff_err->SetPointError(i - 1, bin_half_width, bin_half_width, err_low, err_high);
         }
     }
     eff_err->Draw("same E Z 0");
