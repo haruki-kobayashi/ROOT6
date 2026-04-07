@@ -47,7 +47,7 @@ namespace {
 
 // Ctrl+Cで終了したときの処理
 void handleSIGINT(int) {
-    std::cout << "\n** *Catched Ctrl+C: ";
+    std::cout << "\n*** Catched Ctrl+C: ";
 
     // PDFファイルの生成を完了させる
     if (global_c1 && !global_output.empty()) {
@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
 
     // argparseを使用して引数を解析
     std::cout << "\nInitializing..." << std::endl;
-    argparse::ArgumentParser parser("CorrmapPlot.exe", "1.0.0");
+    argparse::ArgumentParser parser("FineCorrmapPlot.exe", "1.0.0");
     parse_arguments(parser, argc, argv);
 
     // 引数を取得
