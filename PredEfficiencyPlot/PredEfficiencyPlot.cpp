@@ -1,22 +1,27 @@
 ﻿/*
-	predictionファイル（CSV, TSV, またはバイナリ形式）から読み込んだ
-	prediction/reconstructionデータに対して、プレートごとに
-	検出効率のマップをプロットするプログラム。
+    predictionファイル（CSV, TSV, またはバイナリ形式）から読み込んだ
+    prediction/reconstructionデータに対して、プレートごとの検出効率を
+    複数形式でプロットしてPDF出力するプログラム。
 
-	処理フロー:
-	1. コマンドライン引数からパラメータを取得
-	2. 入力フォーマットの自動判定（未指定の場合、拡張子から推定）
-	3. predictionファイルを読み込み（PredRecord.hppのFileReaderを使用）
-	4. 各プレートについて：
-	   - 位置情報（x, y）と角度情報を集計
-	   - 角度ビンごと、位置ビンごとにefficiencyを計算
-	   - 2D効率マップヒストグラムを作成
-	5. 各プレートのページをPDFに出力
+    処理フロー:
+    1. コマンドライン引数を解析し、表示範囲・カット条件・描画設定を取得
+    2. 入力フォーマットを判定（未指定時は拡張子から自動判定）
+    3. predictionファイルを読み込み（PredRecord.hpp の FileReader を使用）
+    4. 各プレートについて each_plate_efficiency を実行
+       - 位置2D効率、角度2D効率、角度1D効率（Wilson区間エラーバー付き）を描画
+       - PH/VPH分布を描画
+       - 角度1D効率データ（EfficiencyRecord）を収集
+    5. 全プレート比較として all_plate_map を描画
+       - 角度可変ビン × Plate番号の TH2Poly 効率マップを描画
+    6. 全プレート重ね描きとして all_plate_overlay を描画
+       - 収集済み EfficiencyRecord を使って1D効率曲線を重ね描き
+    7. すべてのページをPDFとして出力し、必要に応じてテキストも出力
  */
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <csignal>
+#include <cmath>
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -25,6 +30,7 @@
 #include <TStyle.h>
 #include <TError.h>
 #include <TH2D.h>
+#include <TH2Poly.h>
 #include <TStopwatch.h>
 #include <TColor.h>
 #include <TLegend.h>
@@ -64,6 +70,35 @@ namespace {
 
     // その他のグローバル変数
     bool global_darkmode = false;
+
+    constexpr double kPi = 3.14159265358979323846;
+
+    inline double ToDisplayAngle(double tan_theta, bool use_degree)
+    {
+        return use_degree ? std::atan(tan_theta) * 180.0 / kPi : tan_theta;
+    }
+
+    inline std::vector<double> ToDisplayAngleBins(const std::vector<double> &angle_bins, bool use_degree)
+    {
+        std::vector<double> out;
+        out.reserve(angle_bins.size());
+        for (double v : angle_bins) {
+            out.push_back(ToDisplayAngle(v, use_degree));
+        }
+        return out;
+    }
+
+    inline std::string AngleAxisTitle(bool use_degree)
+    {
+        return use_degree ? "#it{#theta} [#circ]" : "tan#it{#theta}";
+    }
+
+    inline std::string AngleAxisTitleXY(bool use_degree, const char *axis)
+    {
+        return use_degree
+            ? fmt::format("#it{{#theta}}_{{{}}} [#circ]", axis)
+            : fmt::format("tan#it{{#theta}}_{{{}}}", axis);
+    }
 }
 
 // ========================================
@@ -113,7 +148,7 @@ void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[]) {
 
     // オプション引数: 角度ビン
     parser.add_argument("-a", "--angle_bins")
-        .help("Angle bins to divide (tan_theta), separated by spaces.\n"
+        .help("Angle bins to divide, separated by spaces.\n"
             "e.g., '--angle_bins 0.1 0.3 0.5' creates bins [0,0.1), [0.1,0.3), [0.3,0.5).\n"
             "[default: 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0\n"
             "1.2 1.4 1.6 1.8 2.0 2.5 3.0 3.5 4.0 4.5 5.0]")
@@ -136,6 +171,10 @@ void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[]) {
             "instead of decimals. [default: false]")
         .flag();
 
+    parser.add_argument("-deg", "--angle_degree")
+        .help("Plot angle axes in degrees instead of tan#theta. [default: false]")
+        .flag();
+
     parser.add_argument("-txt", "-text")
         .help("Output text file name for efficiency values. [default: none]")
         .default_value(std::string());
@@ -149,9 +188,15 @@ void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[]) {
         .scan<'g', double>();
 
     parser.add_argument("-angmax", "--angle_max")
-        .help("Maximum angle (tan_theta) to plot.")
+        .help("Maximum angle to plot.")
         .default_value(5.0)
         .scan<'g', double>();
+
+    parser.add_argument("--pl_range")
+        .help("Plate number range to plot.")
+        .default_value(std::vector<int>({0, INT_MAX}))
+        .nargs(2)
+        .scan<'i', int>();
 
     parser.add_argument("--ph_range")
         .help("Pulse Height range to plot.")
@@ -250,13 +295,25 @@ void parse_arguments(argparse::ArgumentParser& parser, int argc, char* argv[]) {
 // プロット関数の前方宣言
 // ========================================
 
-std::vector<EfficiencyRecord> plot_efficiency_map(
+std::vector<EfficiencyRecord> each_plate_efficiency(
     TCanvas *c1, const std::vector<pred::Record> &records, int pl,
     const std::vector<double> &angle_bins, double eff_lower_lim,
-    double angle_max, double error_sigma, bool use_percent,
+    double angle_max, double error_sigma, bool use_percent, bool use_degree,
     const std::vector<double> &ph_range, const std::vector<double> &vph_range,
     const std::vector<double> &cut_x, const std::vector<double> &cut_y,
     const std::vector<double> &cut_ax, const std::vector<double> &cut_ay
+) noexcept;
+
+void all_plate_map(
+    TCanvas *c1, const std::vector<int> &plates,
+    const std::vector<EfficiencyRecord> &all_efficiency_data,
+    const std::vector<double> &angle_bins, double eff_lower_lim, bool use_percent, bool use_degree
+) noexcept;
+
+void all_plate_overlay(
+    TCanvas *c1, const std::vector<int> &plates,
+    const std::vector<EfficiencyRecord> &all_efficiency_data,
+    const std::vector<double> &angle_bins, double eff_lower_lim, bool use_percent, bool use_degree
 ) noexcept;
 
 // ========================================
@@ -284,6 +341,7 @@ int main(int argc, char* argv[])
     const auto error_sigma = parser.get<double>("--error_sigma");
     const auto eff_lower_lim = parser.get<double>("--efficiency_lower_limit");
     auto angle_max = parser.get<double>("--angle_max");
+    const auto pl_range = parser.get<std::vector<int>>("--pl_range");
     const auto ph_range = parser.get<std::vector<double>>("--ph_range");
     const auto vph_range = parser.get<std::vector<double>>("--vph_range");
     auto cutX = parser.get<std::vector<double>>("--cut_x");
@@ -293,6 +351,7 @@ int main(int argc, char* argv[])
     auto font_number = parser.get<int>("--font_number");
     auto hideGrid = parser.get<bool>("--hide_grid");
     auto use_percent = parser.get<bool>("--percent");
+    auto use_degree = parser.get<bool>("--angle_degree");
     const auto text_output = parser.get<std::string>("-txt");
     global_darkmode = parser.get<bool>("--dark_mode");
     auto palette_arg = parser.get<std::string>("--palette");
@@ -467,6 +526,9 @@ int main(int argc, char* argv[])
     // プレートの一覧を取得
     std::set<int> plate_set;
     for (const auto& record : records) {
+        if (record.pred.pl < pl_range[0] || record.pred.pl > pl_range[1]) {
+            continue; // 範囲外のプレートはスキップ
+        }
         plate_set.insert(record.pred.pl);
     }
     std::vector<int> plates(plate_set.begin(), plate_set.end());
@@ -494,19 +556,31 @@ int main(int argc, char* argv[])
 
 	// プログレスバーの初期化
 	int page = 0;
-    const int total = static_cast<int>(plates.size());
+    const int total = static_cast<int>(plates.size()) + 2;
 	MyUtil::ShowProgress(page, total);
 
     // 各プレートごとにプロット
     std::vector<EfficiencyRecord> all_efficiency_data;
     for (int pl : plates) {
-        auto eff_data = plot_efficiency_map(c1, records, pl, angle_bins, eff_lower_lim,
-            angle_max, error_sigma, use_percent, ph_range, vph_range, cutX, cutY, cutAx, cutAy);
+        auto eff_data = each_plate_efficiency(c1, records, pl, angle_bins, eff_lower_lim,
+            angle_max, error_sigma, use_percent, use_degree, ph_range, vph_range, cutX, cutY, cutAx, cutAy);
         all_efficiency_data.insert(all_efficiency_data.end(), eff_data.begin(), eff_data.end());
         c1->Print(output.c_str());
         c1->Clear();
         MyUtil::ShowProgress(page, total);
     }
+
+    // 全プレート比較 (TH2Poly, 可変角度ビン)
+    all_plate_map(c1, plates, all_efficiency_data, angle_bins, eff_lower_lim, use_percent, use_degree);
+    c1->Print(output.c_str());
+    c1->Clear();
+    MyUtil::ShowProgress(page, total);
+
+    // 全プレートの1D角度分布を重ね描き
+    all_plate_overlay(c1, plates, all_efficiency_data, angle_bins, eff_lower_lim, use_percent, use_degree);
+    c1->Print(output.c_str());
+    c1->Clear();
+    MyUtil::ShowProgress(page, total);
 
     // PDFファイルを閉じる
     c1->Print((output + "]").c_str());
@@ -565,10 +639,10 @@ int main(int argc, char* argv[])
 // プロット関数の実装
 // ========================================
 
-std::vector<EfficiencyRecord> plot_efficiency_map(
+std::vector<EfficiencyRecord> each_plate_efficiency(
     TCanvas *c1, const std::vector<pred::Record> &records, int pl,
     const std::vector<double> &angle_bins, double eff_lower_lim,
-    double angle_max, double error_sigma, bool use_percent,
+    double angle_max, double error_sigma, bool use_percent, bool use_degree,
     const std::vector<double> &ph_range, const std::vector<double> &vph_range,
     const std::vector<double> &cut_x, const std::vector<double> &cut_y,
     const std::vector<double> &cut_ax, const std::vector<double> &cut_ay
@@ -612,6 +686,12 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
     for (int i = 1; i <= 3; ++i) {
         c1->GetPad(2)->GetPad(i)->SetBottomMargin(0.16);
     }
+
+    const std::vector<double> angle_bins_disp = ToDisplayAngleBins(angle_bins, use_degree);
+    const double angle_max_disp = ToDisplayAngle(angle_max, use_degree);
+    const std::string angle_axis = AngleAxisTitle(use_degree);
+    const std::string angle_axis_x = AngleAxisTitleXY(use_degree, "x");
+    const std::string angle_axis_y = AngleAxisTitleXY(use_degree, "y");
 
     // プロット範囲とビン幅の決定
     // フィルムの長辺の端から1cm外側までを最大表示範囲とし、縦横比を正しく保って表示
@@ -677,20 +757,20 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
     gPad->SetLeftMargin(0.2);
 
     TH2D *ang0 = new TH2D("ang0", "all_prediction",
-        100, -angle_max, angle_max, 100, -angle_max, angle_max);
+        100, -angle_max_disp, angle_max_disp, 100, -angle_max_disp, angle_max_disp);
     TH2D *ang1 = new TH2D("ang1", "found_prediction",
-        100, -angle_max, angle_max, 100, -angle_max, angle_max);
+        100, -angle_max_disp, angle_max_disp, 100, -angle_max_disp, angle_max_disp);
 
     for (const auto* rec : filtered_records) {
-        ang0->Fill(rec->pred.ax, rec->pred.ay);
+        ang0->Fill(ToDisplayAngle(rec->pred.ax, use_degree), ToDisplayAngle(rec->pred.ay, use_degree));
         if (pred::found(*rec)) {
-            ang1->Fill(rec->pred.ax, rec->pred.ay);
+            ang1->Fill(ToDisplayAngle(rec->pred.ax, use_degree), ToDisplayAngle(rec->pred.ay, use_degree));
         }
     }
 
-    std::string ang_title = fmt::format(";tan#it{{#theta}}_{{x}};tan#it{{#theta}}_{{y}};{}", z_title);
+    std::string ang_title = fmt::format(";{};{};{}", angle_axis_x, angle_axis_y, z_title);
     TH2D *ang = new TH2D("ang", ang_title.c_str(),
-        100, -angle_max, angle_max, 100, -angle_max, angle_max);
+        100, -angle_max_disp, angle_max_disp, 100, -angle_max_disp, angle_max_disp);
     ang->Divide(ang1, ang0);
     if (use_percent) ang->Scale(100.0);
     ang->Draw("colz");
@@ -704,9 +784,9 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
     // ========================================
     c1->GetPad(2)->cd(1);
 
-    const int bin_num = static_cast<int>(angle_bins.size());
+    const int bin_num = static_cast<int>(angle_bins_disp.size());
     std::vector<double> xbins_vec = {0.0};
-    xbins_vec.insert(xbins_vec.end(), angle_bins.begin(), angle_bins.end());
+    xbins_vec.insert(xbins_vec.end(), angle_bins_disp.begin(), angle_bins_disp.end());
 
     double* xbins = xbins_vec.data();
 
@@ -714,14 +794,14 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
     TH1D *eff1 = new TH1D("eff1", "found_prediction", bin_num, xbins);
 
     for (const auto* rec : filtered_records) {
-        double tan_theta = std::hypot(rec->pred.ax, rec->pred.ay);
+        double tan_theta = ToDisplayAngle(std::hypot(rec->pred.ax, rec->pred.ay), use_degree);
         eff0->Fill(tan_theta);
         if (pred::found(*rec)) {
             eff1->Fill(tan_theta);
         }
     }
 
-    TH1D *eff = new TH1D("eff", fmt::format(";tan#it{{#theta}};{}", z_title).c_str(),
+    TH1D *eff = new TH1D("eff", fmt::format(";{};{}", angle_axis, z_title).c_str(),
                          bin_num, xbins);
     eff->Divide(eff1, eff0);
     if (use_percent) eff->Scale(100.0);
@@ -784,8 +864,8 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
 
             EfficiencyRecord er;
             er.pl = pl;
-            er.angle_min = (i == 1) ? 0.0 : angle_bins[i - 2];
-            er.angle_max = angle_bins[i - 1];
+            er.angle_min = (i == 1) ? 0.0 : angle_bins_disp[i - 2];
+            er.angle_max = angle_bins_disp[i - 1];
             er.pred = n_all;
             er.found = n_found;
             er.eff = efficiency;
@@ -802,13 +882,13 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
 
     const int ph_bins = static_cast<int>(ph_range[1] - ph_range[0]);
     TH2D *ph = new TH2D(
-        "ph", ";tan#it{#theta};PH (detected tracks)",
-        100, 0.0, angle_max, ph_bins, ph_range[0], ph_range[1]
+        "ph", fmt::format(";{};PH (detected tracks)", angle_axis).c_str(),
+        100, 0.0, angle_max_disp, ph_bins, ph_range[0], ph_range[1]
     );
 
     for (const auto* rec : filtered_records) {
         for (const auto& reco : rec->recos) {
-            ph->Fill(std::hypot(reco.ax, reco.ay), reco.ph * 0.0001);
+            ph->Fill(ToDisplayAngle(std::hypot(reco.ax, reco.ay), use_degree), reco.ph * 0.0001);
         }
     }
     ph->Draw("colz");
@@ -827,13 +907,13 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
 
     const int vph_bins = 50;
     TH2D *vph = new TH2D(
-        "vph", ";tan#it{#theta};VPH (detected tracks)",
-        100, 0.0, angle_max, vph_bins, vph_range[0], vph_range[1]
+        "vph", fmt::format(";{};VPH (detected tracks)", angle_axis).c_str(),
+        100, 0.0, angle_max_disp, vph_bins, vph_range[0], vph_range[1]
     );
 
     for (const auto* rec : filtered_records) {
         for (const auto& reco : rec->recos) {
-            vph->Fill(std::hypot(reco.ax, reco.ay), reco.ph % 10000);
+            vph->Fill(ToDisplayAngle(std::hypot(reco.ax, reco.ay), use_degree), reco.ph % 10000);
         }
     }
     vph->Draw("colz");
@@ -846,4 +926,218 @@ std::vector<EfficiencyRecord> plot_efficiency_map(
     vph->SetLabelSize(0.08, "xyz");
 
     return efficiency_data;
+}
+
+void all_plate_map(
+    TCanvas *c1, const std::vector<int> &plates,
+    const std::vector<EfficiencyRecord> &all_efficiency_data,
+    const std::vector<double> &angle_bins, double eff_lower_lim, bool use_percent, bool use_degree
+) noexcept
+{
+    if (plates.empty() || angle_bins.empty()) {
+        c1->cd();
+        TLatex *text = new TLatex(0.5, 0.5, "No all-plate data to plot");
+        text->SetNDC();
+        text->SetTextAlign(22);
+        text->Draw();
+        return;
+    }
+
+    c1->cd();
+
+    gStyle->SetTitleSize(0.05, "xyz");
+    gStyle->SetTitleOffset(0.9, "x");
+    gStyle->SetTitleOffset(1.0, "y");
+    gStyle->SetTitleOffset(1.25, "z");
+    gStyle->SetTitleY(0.985);
+    gStyle->SetTitleFontSize(0.07);
+
+    const int min_pl = plates.front();
+    const int max_pl = plates.back();
+    const int pl_num = max_pl - min_pl + 1;
+    const auto plate_to_display_y = [min_pl, max_pl](int pl) {
+        return static_cast<double>(min_pl + max_pl - pl);
+    };
+    int division = pl_num + 1;
+    if (pl_num > 20) division = 220;
+
+    const double z_lower = use_percent ? eff_lower_lim * 100.0 : eff_lower_lim;
+    const double z_upper = use_percent ? 100.0 : 1.0;
+    const std::vector<double> angle_bins_disp = ToDisplayAngleBins(angle_bins, use_degree);
+    const std::string angle_axis = AngleAxisTitle(use_degree);
+
+    std::string z_title = use_percent ? "Efficiency (%)" : "Efficiency";
+    std::string all_title = fmt::format(
+        "All plate efficiency map;tan#it{{#theta}};Plate number;{}", z_title
+    );
+
+    TH2Poly *allPL = new TH2Poly();
+    allPL->SetName("allPL");
+    allPL->SetTitle(all_title.c_str());
+    allPL->SetTitle(fmt::format("All plate efficiency map;{};Plate number;{}", angle_axis, z_title).c_str());
+
+    std::map<std::pair<int, int>, double> eff_map;
+    for (const auto& er : all_efficiency_data) {
+        int angle_index = -1;
+        for (int i = 0; i < static_cast<int>(angle_bins_disp.size()); ++i) {
+            if (std::abs(er.angle_max - angle_bins_disp[i]) < 1e-9) {
+                angle_index = i;
+                break;
+            }
+        }
+        if (angle_index < 0) continue;
+
+        double value = use_percent ? er.eff * 100.0 : er.eff;
+        eff_map[{er.pl, angle_index}] = value;
+    }
+
+    double x_low = 0.0;
+    for (int ai = 0; ai < static_cast<int>(angle_bins_disp.size()); ++ai) {
+        double x_up = angle_bins_disp[ai];
+        for (int pl : plates) {
+            const double y_center = plate_to_display_y(pl);
+            const int bin_idx = allPL->AddBin(x_low, y_center - 0.5, x_up, y_center + 0.5);
+            auto it = eff_map.find({pl, ai});
+            if (it != eff_map.end()) {
+                allPL->SetBinContent(bin_idx, it->second);
+            }
+        }
+        x_low = x_up;
+    }
+
+    allPL->SetMinimum(z_lower);
+    allPL->SetMaximum(z_upper);
+
+    // 描画枠の設定：TH2Polyのみでmin_pl-0.5からmax_pl+0.5の範囲設定が難しいため
+    TH1F *frame = gPad->DrawFrame(
+        0.0, min_pl - 0.5, angle_bins_disp.back(), max_pl + 0.5,
+        all_title.c_str()
+    );
+    frame->SetLabelSize(0.04, "x");
+    frame->SetLabelSize(0.045, "z");
+
+    // Y軸の主目盛りをビン境界(半整数)に合わせて、グリッド位置を固定
+    frame->GetYaxis()->SetNdivisions(pl_num, false);
+
+    // frame側のYラベルは非表示（境界グリッド専用の軸にする）
+    frame->GetYaxis()->SetLabelSize(0.0);
+
+    allPL->Draw("colz same");
+    gPad->RedrawAxis("g"); // グリッドを前面に出す
+
+    // 整数ラベル用の補助Y軸（ビン中心: min_pl..max_pl）
+    const double x_axis = 0.0;
+    TGaxis *yaxis_center = new TGaxis(
+        x_axis, max_pl,
+        x_axis, min_pl,
+        min_pl, max_pl,
+        std::max(pl_num - 1, 1),
+        "S"
+    );
+    yaxis_center->SetNdivisions(division);
+    yaxis_center->SetLabelSize(0.045);
+    yaxis_center->SetLabelOffset(-0.008);
+    yaxis_center->SetLabelFont(gStyle->GetLabelFont("y"));
+    yaxis_center->SetLabelColor(gStyle->GetLabelColor("y"));
+    yaxis_center->SetLineColor(gStyle->GetAxisColor("y"));
+    yaxis_center->SetTickSize(0.0);
+    yaxis_center->Draw();
+
+    frame->Draw("same axis"); // 軸を前面に出す
+}
+
+void all_plate_overlay(
+    TCanvas *c1, const std::vector<int> &plates,
+    const std::vector<EfficiencyRecord> &all_efficiency_data,
+    const std::vector<double> &angle_bins, double eff_lower_lim, bool use_percent, bool use_degree
+) noexcept
+{
+    if (plates.empty() || angle_bins.empty()) {
+        c1->cd();
+        TLatex *text = new TLatex(0.5, 0.5, "No all-plate data to plot");
+        text->SetNDC();
+        text->SetTextAlign(22);
+        text->Draw();
+        return;
+    }
+
+    c1->cd();
+
+    gStyle->SetTitleSize(0.05, "xy");
+    gStyle->SetTitleOffset(0.9, "x");
+    gStyle->SetTitleOffset(1.0, "y");
+    gStyle->SetTitleY(0.985);
+    gStyle->SetTitleFontSize(0.07);
+
+    const int min_pl = plates.front();
+    const int max_pl = plates.back();
+    gStyle->SetNumberContours(max_pl - min_pl + 1);
+
+    const double y_lower = use_percent ? eff_lower_lim * 100.0 : eff_lower_lim;
+    const double y_upper = use_percent ? 100.0 : 1.0;
+    const std::string y_title = use_percent ? "Efficiency (%)" : "Efficiency";
+    const std::vector<double> angle_bins_disp = ToDisplayAngleBins(angle_bins, use_degree);
+    const std::string angle_axis = AngleAxisTitle(use_degree);
+
+    std::vector<double> xbins_vec = {0.0};
+    xbins_vec.insert(xbins_vec.end(), angle_bins_disp.begin(), angle_bins_disp.end());
+    const double *xbins = xbins_vec.data();
+    const int bin_num = static_cast<int>(angle_bins_disp.size());
+
+    TH2D *axis_hist = new TH2D(
+        "all_plate_overlay_axis",
+        fmt::format("All plate efficiency;{};{};Plate number", angle_axis, y_title).c_str(),
+        bin_num, xbins, 1, y_lower, y_upper
+    );
+    axis_hist->Fill(0.0, 0.0); // ダミーデータで軸を描画
+    axis_hist->SetLabelSize(0.04, "x");
+    axis_hist->SetLabelSize(0.045, "y");
+    axis_hist->GetYaxis()->SetRangeUser(y_lower, y_upper);
+    axis_hist->GetZaxis()->SetRangeUser(min_pl - 0.5, max_pl + 0.5);
+    axis_hist->Draw("colz");
+
+    const int n_colors = std::max(gStyle->GetNumberOfColors(), 1);
+    std::map<int, std::map<int, const EfficiencyRecord*>> plate_bins;
+    for (const auto& er : all_efficiency_data) {
+        int angle_index = -1;
+        for (int i = 0; i < static_cast<int>(angle_bins_disp.size()); ++i) {
+            if (std::abs(er.angle_max - angle_bins_disp[i]) < 1e-9) {
+                angle_index = i;
+                break;
+            }
+        }
+        if (angle_index < 0) continue;
+        plate_bins[er.pl][angle_index] = &er;
+    }
+
+    for (int pl : plates) {
+        TH1D *hist = new TH1D(Form("allPL_overlay_eff_%03d", pl), "", bin_num, xbins);
+
+        const int color_index = (max_pl > min_pl)
+            ? static_cast<int>(std::lround((n_colors - 1.0) * (pl - min_pl) / static_cast<double>(max_pl - min_pl)))
+            : 0;
+        const int color = gStyle->GetColorPalette(std::clamp(color_index, 0, n_colors - 1));
+
+        TGraphAsymmErrors *eff_err = new TGraphAsymmErrors();
+        auto it = plate_bins.find(pl);
+        if (it != plate_bins.end()) {
+            for (const auto& [angle_index, er] : it->second) {
+                const int bin_index = angle_index + 1;
+                const double efficiency = use_percent ? er->eff * 100.0 : er->eff;
+                const double err_low = use_percent ? er->eff_err_low * 100.0 : er->eff_err_low;
+                const double err_high = use_percent ? er->eff_err_high * 100.0 : er->eff_err_high;
+
+                hist->SetBinContent(bin_index, efficiency);
+
+                const double bin_center = hist->GetBinCenter(bin_index);
+                const double bin_half_width = hist->GetBinWidth(bin_index) / 2.0;
+                eff_err->SetPoint(bin_index - 1, bin_center, efficiency);
+                eff_err->SetPointError(bin_index - 1, bin_half_width, bin_half_width, err_low, err_high);
+            }
+        }
+
+        eff_err->SetLineWidth(2);
+        eff_err->SetLineColorAlpha(color, 0.6);
+        eff_err->Draw("same E Z 0");
+    }
 }
